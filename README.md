@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Run Codex
-        uses: openai/codex-exec-action@main
+        uses: openai/codex-action@main
         id: codex
         with:
           openai_api_key: ${{ secrets.OPENAI_API_KEY }}
@@ -56,7 +56,7 @@ The `safety_strategy` input determines how much access Codex receives on the run
 ### Operating system support
 
 - **Windows**: GitHub-hosted Windows runners lack a supported sandbox. Set `safety_strategy: unsafe`. The action validates this and exits early otherwise.
-- **Linux/macOS**: All options for `safety_strategy` are supported. Again, if you pick `drop_sudo`, remember that later steps in your `job` that rely on `sudo` will fail. If you do need to run code that requires `sudo` after `openai/codex-exec-action` has run, one option is to pipe the output of `openai/codex-exec-action` to a fresh `job` on a new host and to continue your workflow from there.
+- **Linux/macOS**: All options for `safety_strategy` are supported. Again, if you pick `drop_sudo`, remember that later steps in your `job` that rely on `sudo` will fail. If you do need to run code that requires `sudo` after `openai/codex-action` has run, one option is to pipe the output of `openai/codex-action` to a fresh `job` on a new host and to continue your workflow from there.
 
 ## Outputs
 
