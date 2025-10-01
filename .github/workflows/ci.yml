@@ -1,0 +1,42 @@
+name: Verify TypeScript Build
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm run check
+
+      - name: Build bundles
+        run: pnpm run build
+
+      - name: Ensure dist matches bundled output
+        run: |
+          if [[ -n "$(git status --porcelain dist)" ]]; then
+            echo '::error::Detected modified files in dist/ after running pnpm run build. Please rebuild locally and commit the updated bundles.'
+            git --no-pager diff dist
+            exit 1
+          fi

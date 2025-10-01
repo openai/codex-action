@@ -1,0 +1,196 @@
+name: "Codex Exec Action"
+description: "Run `codex exec` with a prompt."
+author: "OpenAI"
+inputs:
+  prompt:
+    description: "Prompt to pass to `codex exec`. `prompt` or `prompt_file` must be provided."
+    required: false
+    default: ""
+  prompt_file:
+    description: "Path to file that contains the prompt to pass to `codex exec`. `prompt` or `prompt_file` must be provided."
+    required: false
+    default: ""
+  openai_api_key:
+    description: "OpenAI API key used by the Codex CLI."
+    required: true
+  codex_working_directory:
+    description: "Optional working directory to `cd` into before running `codex exec`."
+    required: false
+    default: ""
+  codex_version:
+    description: "Version of `@openai/codex` to install."
+    required: false
+    default: "0.43.0-alpha.3"
+  codex_args:
+    description: "Additional args to pass through to `codex exec`. If this value starts with `[`, it will be parsed as a JSON array; otherwise, it will be parsed as a shell-like string."
+    required: false
+    default: ""
+  codex_output_file:
+    description: "File path where the Codex output should be written. Ignored if the empty string."
+    required: false
+    default: ""
+  codex_home:
+    description: "Directory to use as the Codex home directory. If empty, the default Codex home directory will be used."
+    required: false
+    default: ""
+  safety_strategy:
+    description: |
+      Specify one of the following options (on Windows, the only supported option is `unsafe`):
+
+      * `drop_sudo` (default, IRREVERSIBLE) Drop sudo privileges (if any) from
+        the default user before running Codex, and run Codex as that user. This
+        is only supported on Linux and macOS runners. This option is
+        irreversible: if the default user has sudo privileges, they will be
+        removed permanently for the duration of the job.
+      * `unprivileged_user` Run Codex as the specified user specified by the
+        `codex_user` option (the user must already exist). Note the caller is
+        responsible for ensuring the specified user has the privileges it needs
+        to perform the requested actions. For example, the copy of the repo
+        created by `actions/checkout` is not world-readable by default.
+      * `read_only` Run Codex in a sandbox that can read any file on disk,
+        but cannot write to disk or access the network. Note Codex will still
+        run as the default user for this Action, which likely has sudo
+        privileges, so it could read `openai_api_key` from memory and reveal it
+        by printing it to the output of the GitHub Action.
+      * `unsafe` (NOT RECOMMENDED) Do not try to restrict Codex's privileges at all.
+        This is extremely dangerous, as the default user for this Action likely
+        has sudo privileges, which means it can read secrets stored in memory
+        (such as the value of `openai_api_key`) and print them to the output
+        of the GitHub Action or exfiltrate them in other ways.
+    required: false
+    default: "drop_sudo"
+  codex_user:
+    description: "If `safety_strategy` is set to `unprivileged_user`, this specifies the UNIX username to run Codex as."
+    required: false
+    default: ""
+  require_repo_write:
+    description: "Whether to require the triggering actor to have write access to the repository before running."
+    required: false
+    default: "true"
+  allow_bots:
+    description: "Allow runs triggered by GitHub Apps/bot accounts to bypass the write-access check."
+    required: false
+    default: "false"
+outputs:
+  final_message:
+    description: "Raw output emitted by `codex exec`."
+    value: ${{ steps.run_codex.outputs.final_message }}
+runs:
+  using: "composite"
+  steps:
+    - name: Validate Windows safety strategy
+      if: ${{ runner.os == 'Windows' }}
+      shell: bash
+      run: |
+        if [ "${{ inputs.safety_strategy }}" != "unsafe" ]; then
+          echo "On Windows, inputs.safety_strategy must be 'unsafe'" >&2
+          echo "because no viable sandboxing options are available at this time." >&2
+          exit 1
+        fi
+
+    - name: Ensure Node.js available
+      uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+
+    - name: Check repository write access
+      if: ${{ inputs.require_repo_write == 'true' }}
+      env:
+        ALLOW_BOTS: ${{ inputs.allow_bots }}
+        GITHUB_TOKEN: ${{ github.token }}
+      shell: bash
+      run: |
+        node --enable-source-maps dist/main.js check-write-access --allow-bots "$ALLOW_BOTS"
+
+    - name: Install Codex CLI
+      shell: bash
+      run: npm install -g "@openai/codex@${{ inputs.codex_version }}"
+
+    - name: Install Codex Responses API proxy
+      shell: bash
+      run: npm install -g "@openai/codex-responses-api-proxy@${{ inputs.codex_version }}"
+
+    - name: Start Responses API proxy
+      id: start_proxy
+      env:
+        OPENAI_API_KEY: ${{ inputs.openai_api_key }}
+      shell: bash
+      run: |
+        tmpfile=$(mktemp)
+        (
+          printenv OPENAI_API_KEY | codex-responses-api-proxy --http-shutdown --server-info "$tmpfile"
+        ) &
+        for _ in {1..10}; do
+          if [ -s "$tmpfile" ]; then
+            break
+          fi
+          sleep 1
+        done
+        if [ ! -s "$tmpfile" ]; then
+          echo "responses-api-proxy did not write server info" >&2
+          exit 1
+        fi
+        echo "server_info_file=$tmpfile" >> "$GITHUB_OUTPUT"
+
+    # This step has an output named `port`.
+    - name: Read server info
+      id: read_server_info
+      shell: bash
+      run: node dist/main.js read-server-info "${{ steps.start_proxy.outputs.server_info_file }}"
+
+    - name: Drop sudo privilege, if appropriate
+      if: ${{ inputs.safety_strategy == 'drop_sudo' }}
+      shell: bash
+      run: |
+        case "${RUNNER_OS}" in
+          Linux)
+            node --enable-source-maps dist/main.js drop-sudo --user runner --group sudo
+            ;;
+          macOS)
+            node --enable-source-maps dist/main.js drop-sudo --user runner --group admin
+            ;;
+          *)
+            echo "Unsupported OS for drop_sudo: ${RUNNER_OS}" >&2
+            exit 1
+            ;;
+        esac
+
+    - name: Verify sudo privilege removed
+      if: ${{ inputs.safety_strategy == 'drop_sudo' }}
+      shell: bash
+      run: |
+        if sudo -n true 2>/dev/null; then
+          echo "Expected sudo to be disabled, but sudo succeeded." >&2
+          exit 1
+        fi
+        echo "Confirmed sudo privilege is disabled."
+
+    - name: Run codex exec
+      id: run_codex
+      env:
+        CODEX_PROMPT: ${{ inputs.prompt }}
+        CODEX_PROMPT_FILE: ${{ inputs.prompt_file }}
+        CODEX_HOME: ${{ inputs.codex_home }}
+        CODEX_WORKING_DIRECTORY: ${{ inputs.codex_working_directory || github.workspace }}
+        CODEX_ARGS: ${{ inputs.codex_args }}
+        CODEX_OUTPUT_FILE: ${{ inputs.codex_output_file }}
+        CODEX_SAFETY_STRATEGY: ${{ inputs.safety_strategy }}
+        CODEX_USER: ${{ inputs.codex_user }}
+      shell: bash
+      run: |
+        node --enable-source-maps dist/main.js run-codex-exec \
+            --prompt "${CODEX_PROMPT}" \
+            --prompt-file "${CODEX_PROMPT_FILE}" \
+            --codex-home "$CODEX_HOME" \
+            --cd "$CODEX_WORKING_DIRECTORY" \
+            --proxy-port "${{ steps.read_server_info.outputs.port }}" \
+            --extra-args "$CODEX_ARGS" \
+            --output-file "$CODEX_OUTPUT_FILE" \
+            --safety-strategy "$CODEX_SAFETY_STRATEGY" \
+            --codex-user "$CODEX_USER"
+
+    - name: Shutdown codex webserver
+      env:
+        CODEX_SERVER_PORT: ${{ steps.read_server_info.outputs.port }}
+      shell: bash
+      run: curl --fail --silent --show-error "http://127.0.0.1:${CODEX_SERVER_PORT}/shutdown"
