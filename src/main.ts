@@ -11,9 +11,9 @@ export async function main() {
   const program = new Command();
 
   program
-    .name("codex-exec-action")
+    .name("codex-action")
     .version(pkg.version)
-    .description("Multitool to support @openai/codex-exec-action.");
+    .description("Multitool to support openai/codex-action.");
 
   program
     .command("read-server-info")

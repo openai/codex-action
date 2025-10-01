@@ -1,5 +1,5 @@
 {
-  "name": "@openai/codex-exec-action",
+  "name": "@openai/codex-action",
   "version": "0.0.0",
   "description": "GitHub Action to run codex exec via the Codex CLI with accompanying helper steps",
   "private": true,
