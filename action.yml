@@ -88,7 +88,7 @@ runs:
           exit 1
         fi
 
-    - name: Ensure Node.js available
+    - name: Ensure Node available
       uses: actions/setup-node@v4
       with:
         node-version: "20"
