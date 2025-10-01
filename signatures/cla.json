@@ -1,3 +1,12 @@
 {
-  "signedContributors": []
+  "signedContributors": [
+    {
+      "name": "bolinfest",
+      "id": 655869,
+      "comment_id": 3358356516,
+      "created_at": "2025-10-01T22:19:14Z",
+      "repoId": 1068091251,
+      "pullRequestNo": 1
+    }
+  ]
 }
