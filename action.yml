@@ -100,7 +100,7 @@ runs:
         GITHUB_TOKEN: ${{ github.token }}
       shell: bash
       run: |
-        node --enable-source-maps dist/main.js check-write-access --allow-bots "$ALLOW_BOTS"
+        node --enable-source-maps "${{ github.action_path }}/dist/main.js" check-write-access --allow-bots "$ALLOW_BOTS"
 
     - name: Install Codex CLI
       shell: bash
@@ -136,7 +136,7 @@ runs:
     - name: Read server info
       id: read_server_info
       shell: bash
-      run: node dist/main.js read-server-info "${{ steps.start_proxy.outputs.server_info_file }}"
+      run: node --enable-source-maps "${{ github.action_path }}/dist/main.js" read-server-info "${{ steps.start_proxy.outputs.server_info_file }}"
 
     - name: Drop sudo privilege, if appropriate
       if: ${{ inputs.safety_strategy == 'drop_sudo' }}
@@ -144,10 +144,10 @@ runs:
       run: |
         case "${RUNNER_OS}" in
           Linux)
-            node --enable-source-maps dist/main.js drop-sudo --user runner --group sudo
+            node --enable-source-maps "${{ github.action_path }}/dist/main.js" drop-sudo --user runner --group sudo
             ;;
           macOS)
-            node --enable-source-maps dist/main.js drop-sudo --user runner --group admin
+            node --enable-source-maps "${{ github.action_path }}/dist/main.js" drop-sudo --user runner --group admin
             ;;
           *)
             echo "Unsupported OS for drop_sudo: ${RUNNER_OS}" >&2
@@ -178,7 +178,7 @@ runs:
         CODEX_USER: ${{ inputs.codex_user }}
       shell: bash
       run: |
-        node --enable-source-maps dist/main.js run-codex-exec \
+        node --enable-source-maps "${{ github.action_path }}/dist/main.js" run-codex-exec \
             --prompt "${CODEX_PROMPT}" \
             --prompt-file "${CODEX_PROMPT_FILE}" \
             --codex-home "$CODEX_HOME" \
