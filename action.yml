@@ -13,7 +13,7 @@ inputs:
   openai_api_key:
     description: "OpenAI API key used by the Codex CLI."
     required: true
-  codex_working_directory:
+  working_directory:
     description: "Optional working directory to `cd` into before running `codex exec`."
     required: false
     default: ""
@@ -25,7 +25,7 @@ inputs:
     description: "Additional args to pass through to `codex exec`. If this value starts with `[`, it will be parsed as a JSON array; otherwise, it will be parsed as a shell-like string."
     required: false
     default: ""
-  codex_output_file:
+  output_file:
     description: "File path where the Codex output should be written. Ignored if the empty string."
     required: false
     default: ""
@@ -171,9 +171,9 @@ runs:
         CODEX_PROMPT: ${{ inputs.prompt }}
         CODEX_PROMPT_FILE: ${{ inputs.prompt_file }}
         CODEX_HOME: ${{ inputs.codex_home }}
-        CODEX_WORKING_DIRECTORY: ${{ inputs.codex_working_directory || github.workspace }}
+        CODEX_WORKING_DIRECTORY: ${{ inputs.working_directory || github.workspace }}
         CODEX_ARGS: ${{ inputs.codex_args }}
-        CODEX_OUTPUT_FILE: ${{ inputs.codex_output_file }}
+        CODEX_OUTPUT_FILE: ${{ inputs.output_file }}
         CODEX_SAFETY_STRATEGY: ${{ inputs.safety_strategy }}
         CODEX_USER: ${{ inputs.codex_user }}
       shell: bash
