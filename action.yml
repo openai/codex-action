@@ -3,21 +3,21 @@ description: "Run `codex exec` with a prompt."
 author: "OpenAI"
 inputs:
   prompt:
-    description: "Prompt to pass to `codex exec`. `prompt` or `prompt_file` must be provided."
+    description: "Prompt to pass to `codex exec`. `prompt` or `prompt-file` must be provided."
     required: false
     default: ""
-  prompt_file:
-    description: "Path to file that contains the prompt to pass to `codex exec`. `prompt` or `prompt_file` must be provided."
+  prompt-file:
+    description: "Path to file that contains the prompt to pass to `codex exec`. `prompt` or `prompt-file` must be provided."
     required: false
     default: ""
-  output_file:
+  output-file:
     description: "Path to a JSON Schema file describing the model's final response shape."
     required: false
     default: ""
-  openai_api_key:
+  openai-api-key:
     description: "OpenAI API key used by the Codex CLI."
     required: true
-  working_directory:
+  working-directory:
     description: "Optional working directory to `cd` into before running `codex exec`."
     required: false
     default: ""
@@ -26,19 +26,19 @@ inputs:
       Sandbox mode for Codex. One of `workspace-write` (default), `read-only` or `danger-full-access`.
     required: false
     default: "workspace-write"
-  codex_version:
+  codex-version:
     description: "Version of `@openai/codex` to install."
     required: false
     default: "0.43.0-alpha.17"
-  codex_args:
+  codex-args:
     description: "Additional args to pass through to `codex exec`. If this value starts with `[`, it will be parsed as a JSON array; otherwise, it will be parsed as a shell-like string."
     required: false
     default: ""
-  output_schema:
+  output-schema:
     description: "Inline schema contents to use with `codex exec --output-schema`."
     required: false
     default: ""
-  output_schema_file:
+  output-schema-file:
     description: "File path to the schema that should be passed to `codex exec --output-schema`."
     required: false
     default: ""
@@ -46,52 +46,52 @@ inputs:
     description: "Model the agent should use"
     required: false
     default: ""
-  codex_home:
+  codex-home:
     description: "Directory to use as the Codex home directory. If empty, the default Codex home directory will be used."
     required: false
     default: ""
-  safety_strategy:
+  safety-strategy:
     description: |
       Specify one of the following options (on Windows, the only supported option is `unsafe`):
 
-      * `drop_sudo` (default, IRREVERSIBLE) Drop sudo privileges (if any) from
+      * `drop-sudo` (default, IRREVERSIBLE) Drop sudo privileges (if any) from
         the default user before running Codex, and run Codex as that user. This
         is only supported on Linux and macOS runners. This option is
         irreversible: if the default user has sudo privileges, they will be
         removed permanently for the duration of the job.
-      * `unprivileged_user` Run Codex as the specified user specified by the
-        `codex_user` option (the user must already exist). Note the caller is
+      * `unprivileged-user` Run Codex as the specified user specified by the
+        `codex-user` option (the user must already exist). Note the caller is
         responsible for ensuring the specified user has the privileges it needs
         to perform the requested actions. For example, the copy of the repo
         created by `actions/checkout` is not world-readable by default.
-      * `read_only` Run Codex in a sandbox that can read any file on disk,
+      * `read-only` Run Codex in a sandbox that can read any file on disk,
         but cannot write to disk or access the network. Note Codex will still
         run as the default user for this Action, which likely has sudo
-        privileges, so it could read `openai_api_key` from memory and reveal it
+        privileges, so it could read `openai-api-key` from memory and reveal it
         by printing it to the output of the GitHub Action.
       * `unsafe` (NOT RECOMMENDED) Do not try to restrict Codex's privileges at all.
         This is extremely dangerous, as the default user for this Action likely
         has sudo privileges, which means it can read secrets stored in memory
-        (such as the value of `openai_api_key`) and print them to the output
+        (such as the value of `openai-api-key`) and print them to the output
         of the GitHub Action or exfiltrate them in other ways.
     required: false
-    default: "drop_sudo"
-  codex_user:
-    description: "If `safety_strategy` is set to `unprivileged_user`, this specifies the UNIX username to run Codex as."
+    default: "drop-sudo"
+  codex-user:
+    description: "If `safety-strategy` is set to `unprivileged-user`, this specifies the UNIX username to run Codex as."
     required: false
     default: ""
-  require_repo_write:
+  require-repo-write:
     description: "Whether to require the triggering actor to have write access to the repository before running."
     required: false
     default: "true"
-  allow_bots:
+  allow-bots:
     description: "Allow runs triggered by GitHub Apps/bot accounts to bypass the write-access check."
     required: false
     default: "false"
 outputs:
-  final_message:
+  final-message:
     description: "Raw output emitted by `codex exec`."
-    value: ${{ steps.run_codex.outputs.final_message }}
+    value: ${{ steps.run_codex.outputs['final-message'] }}
 runs:
   using: "composite"
   steps:
@@ -99,8 +99,8 @@ runs:
       if: ${{ runner.os == 'Windows' }}
       shell: bash
       run: |
-        if [ "${{ inputs.safety_strategy }}" != "unsafe" ]; then
-          echo "On Windows, inputs.safety_strategy must be 'unsafe'" >&2
+        if [ "${{ inputs['safety-strategy'] }}" != "unsafe" ]; then
+          echo "On Windows, inputs['safety-strategy'] must be 'unsafe'" >&2
           echo "because no viable sandboxing options are available at this time." >&2
           exit 1
         fi
@@ -111,9 +111,9 @@ runs:
         node-version: "20"
 
     - name: Check repository write access
-      if: ${{ inputs.require_repo_write == 'true' }}
+      if: ${{ inputs['require-repo-write'] == 'true' }}
       env:
-        ALLOW_BOTS: ${{ inputs.allow_bots }}
+        ALLOW_BOTS: ${{ inputs['allow-bots'] }}
         GITHUB_TOKEN: ${{ github.token }}
       shell: bash
       run: |
@@ -121,16 +121,16 @@ runs:
 
     - name: Install Codex CLI
       shell: bash
-      run: npm install -g "@openai/codex@${{ inputs.codex_version }}"
+      run: npm install -g "@openai/codex@${{ inputs['codex-version'] }}"
 
     - name: Install Codex Responses API proxy
       shell: bash
-      run: npm install -g "@openai/codex-responses-api-proxy@${{ inputs.codex_version }}"
+      run: npm install -g "@openai/codex-responses-api-proxy@${{ inputs['codex-version'] }}"
 
     - name: Start Responses API proxy
       id: start_proxy
       env:
-        OPENAI_API_KEY: ${{ inputs.openai_api_key }}
+        OPENAI_API_KEY: ${{ inputs['openai-api-key'] }}
       shell: bash
       run: |
         tmpfile=$(mktemp)
@@ -156,7 +156,7 @@ runs:
       run: node "${{ github.action_path }}/dist/main.js" read-server-info "${{ steps.start_proxy.outputs.server_info_file }}"
 
     - name: Drop sudo privilege, if appropriate
-      if: ${{ inputs.safety_strategy == 'drop_sudo' }}
+      if: ${{ inputs['safety-strategy'] == 'drop-sudo' }}
       shell: bash
       run: |
         case "${RUNNER_OS}" in
@@ -167,13 +167,13 @@ runs:
             node "${{ github.action_path }}/dist/main.js" drop-sudo --user runner --group admin
             ;;
           *)
-            echo "Unsupported OS for drop_sudo: ${RUNNER_OS}" >&2
+            echo "Unsupported OS for drop-sudo: ${RUNNER_OS}" >&2
             exit 1
             ;;
         esac
 
     - name: Verify sudo privilege removed
-      if: ${{ inputs.safety_strategy == 'drop_sudo' }}
+      if: ${{ inputs['safety-strategy'] == 'drop-sudo' }}
       shell: bash
       run: |
         if sudo -n true 2>/dev/null; then
@@ -186,17 +186,17 @@ runs:
       id: run_codex
       env:
         CODEX_PROMPT: ${{ inputs.prompt }}
-        CODEX_PROMPT_FILE: ${{ inputs.prompt_file }}
-        CODEX_OUTPUT_FILE: ${{ inputs.output_file }}
-        CODEX_HOME: ${{ inputs.codex_home }}
-        CODEX_WORKING_DIRECTORY: ${{ inputs.working_directory || github.workspace }}
+        CODEX_PROMPT_FILE: ${{ inputs['prompt-file'] }}
+        CODEX_OUTPUT_FILE: ${{ inputs['output-file'] }}
+        CODEX_HOME: ${{ inputs['codex-home'] }}
+        CODEX_WORKING_DIRECTORY: ${{ inputs['working-directory'] || github.workspace }}
         CODEX_SANDBOX: ${{ inputs.sandbox }}
-        CODEX_ARGS: ${{ inputs.codex_args }}
-        CODEX_OUTPUT_SCHEMA: ${{ inputs.output_schema }}
-        CODEX_OUTPUT_SCHEMA_FILE: ${{ inputs.output_schema_file }}
+        CODEX_ARGS: ${{ inputs['codex-args'] }}
+        CODEX_OUTPUT_SCHEMA: ${{ inputs['output-schema'] }}
+        CODEX_OUTPUT_SCHEMA_FILE: ${{ inputs['output-schema-file'] }}
         CODEX_MODEL: ${{ inputs.model }}
-        CODEX_SAFETY_STRATEGY: ${{ inputs.safety_strategy }}
-        CODEX_USER: ${{ inputs.codex_user }}
+        CODEX_SAFETY_STRATEGY: ${{ inputs['safety-strategy'] }}
+        CODEX_USER: ${{ inputs['codex-user'] }}
         FORCE_COLOR: 1
       shell: bash
       run: |
