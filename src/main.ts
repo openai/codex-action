@@ -2,7 +2,12 @@ import { Command, Option } from "commander";
 import pkg from "../package.json" assert { type: "json" };
 
 import { readServerInfo } from "./readServerInfo";
-import { PromptSource, runCodexExec, SafetyStrategy } from "./runCodexExec";
+import {
+  OutputSchemaSource,
+  PromptSource,
+  runCodexExec,
+  SafetyStrategy,
+} from "./runCodexExec";
 import { dropSudo } from "./dropSudo";
 import { ensureActorHasWriteAccess } from "./checkActorPermissions";
 import parseArgsStringToArgv from "string-argv";
@@ -74,6 +79,10 @@ export async function main() {
       "--output-schema-file <FILE>",
       "Path to a schema file to pass to `codex exec --output-schema`."
     )
+    .requiredOption(
+      "--output-schema <SCHEMA>",
+      "Inline schema contents to pass to `codex exec --output-schema`."
+    )
     .requiredOption("--model <model>", "Model the agent should use")
     .requiredOption(
       "--safety-strategy <strategy>",
@@ -93,6 +102,7 @@ export async function main() {
         extraArgs: Array<string>;
         outputFile: string;
         outputSchemaFile: string;
+        outputSchema: string;
         model: string;
         safetyStrategy: string;
         codexUser: string;
@@ -106,6 +116,7 @@ export async function main() {
           extraArgs,
           outputFile,
           outputSchemaFile,
+          outputSchema,
           model,
           safetyStrategy,
           codexUser,
@@ -115,7 +126,7 @@ export async function main() {
         const normalizedPromptFile = emptyAsNull(promptFile);
         let promptSource: PromptSource;
         if (normalizedPrompt != null) {
-          promptSource = { type: "text", content: normalizedPrompt };
+          promptSource = { type: "inline", content: normalizedPrompt };
         } else if (normalizedPromptFile != null) {
           promptSource = { type: "file", path: normalizedPromptFile };
         } else {
@@ -126,6 +137,31 @@ export async function main() {
 
         // Custom option processing to coerces to null does not work with
         // Commander.js's requiredOption, so we have to post-process here.
+        const normalizedOutputSchemaFile = emptyAsNull(outputSchemaFile);
+        const normalizedOutputSchema = emptyAsNull(outputSchema);
+
+        if (
+          normalizedOutputSchemaFile != null &&
+          normalizedOutputSchema != null
+        ) {
+          throw new Error(
+            "Only one of `output_schema` or `output_schema_file` may be specified."
+          );
+        }
+
+        let outputSchemaSource: OutputSchemaSource | null = null;
+        if (normalizedOutputSchema != null) {
+          outputSchemaSource = {
+            type: "inline",
+            content: normalizedOutputSchema,
+          };
+        } else if (normalizedOutputSchemaFile != null) {
+          outputSchemaSource = {
+            type: "file",
+            path: normalizedOutputSchemaFile,
+          };
+        }
+
         await runCodexExec({
           prompt: promptSource,
           codexHome: emptyAsNull(codexHome),
@@ -133,7 +169,7 @@ export async function main() {
           proxyPort,
           extraArgs,
           explicitOutputFile: emptyAsNull(outputFile),
-          outputSchemaFile: emptyAsNull(outputSchemaFile),
+          outputSchema: outputSchemaSource,
           model: emptyAsNull(model),
           safetyStrategy: toSafetyStrategy(safetyStrategy),
           codexUser: emptyAsNull(codexUser),
