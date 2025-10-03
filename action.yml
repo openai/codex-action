@@ -191,6 +191,7 @@ runs:
         CODEX_MODEL: ${{ inputs.model }}
         CODEX_SAFETY_STRATEGY: ${{ inputs.safety_strategy }}
         CODEX_USER: ${{ inputs.codex_user }}
+        FORCE_COLOR: 1
       shell: bash
       run: |
         node "${{ github.action_path }}/dist/main.js" run-codex-exec \
