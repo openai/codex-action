@@ -38,6 +38,7 @@ Provide either `prompt` or `prompt_file`; the other may be left empty. The actio
 | `prompt_file`        | Conditionally | Path (relative to the repository root) of a file that contains the prompt. Provide this or `prompt`.                                    | `""`             |
 | `output_file`        | No            | File where the final Codex message is written. Leave empty to skip writing a file.                                                      | `""`             |
 | `working_directory`  | No            | Directory passed to `codex exec --cd`. Defaults to the repository root.                                                                 | `""`             |
+| `sandbox`            | No            | Sandbox mode for Codex. One of `workspace-write` (default), `read-only` or `danger-full-access`.                                        | `""`             |
 | `codex_version`      | No            | Version of `@openai/codex` to install.                                                                                                  | `0.42.0-alpha.3` |
 | `codex_args`         | No            | Extra arguments forwarded to `codex exec`. Accepts JSON arrays (`["--flag", "value"]`) or shell-style strings.                          | `""`             |
 | `output_schema`      | No            | Inline schema contents written to a temp file and passed to `codex exec --output-schema`. Mutually exclusive with `output_schema_file`. | `""`             |
