@@ -20,13 +20,17 @@ inputs:
   codex_version:
     description: "Version of `@openai/codex` to install."
     required: false
-    default: "0.43.0-alpha.3"
+    default: "0.43.0-alpha.17"
   codex_args:
     description: "Additional args to pass through to `codex exec`. If this value starts with `[`, it will be parsed as a JSON array; otherwise, it will be parsed as a shell-like string."
     required: false
     default: ""
   output_file:
-    description: "File path where the Codex output should be written. Ignored if the empty string."
+    description: "Path to a JSON Schema file describing the model's final response shape."
+    required: false
+    default: ""
+  output_schema_file:
+    description: "File path to the schema that should be passed to `codex exec --output-schema`."
     required: false
     default: ""
   codex_home:
@@ -174,6 +178,7 @@ runs:
         CODEX_WORKING_DIRECTORY: ${{ inputs.working_directory || github.workspace }}
         CODEX_ARGS: ${{ inputs.codex_args }}
         CODEX_OUTPUT_FILE: ${{ inputs.output_file }}
+        CODEX_OUTPUT_SCHEMA_FILE: ${{ inputs.output_schema_file }}
         CODEX_SAFETY_STRATEGY: ${{ inputs.safety_strategy }}
         CODEX_USER: ${{ inputs.codex_user }}
       shell: bash
@@ -186,6 +191,7 @@ runs:
             --proxy-port "${{ steps.read_server_info.outputs.port }}" \
             --extra-args "$CODEX_ARGS" \
             --output-file "$CODEX_OUTPUT_FILE" \
+            --output-schema-file "$CODEX_OUTPUT_SCHEMA_FILE" \
             --safety-strategy "$CODEX_SAFETY_STRATEGY" \
             --codex-user "$CODEX_USER"
 
