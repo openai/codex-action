@@ -16,7 +16,8 @@ inputs:
     default: ""
   openai-api-key:
     description: "OpenAI API key used by Codex."
-    required: true
+    required: false
+    default: ""
   working-directory:
     description: "Working directory that Codex should use. Defaults to the repository root."
     required: false
@@ -127,36 +128,62 @@ runs:
       shell: bash
       run: npm install -g "@openai/codex-responses-api-proxy@${{ inputs['codex-version'] }}"
 
+    - name: Resolve Codex home
+      id: resolve_home
+      shell: bash
+      run: |
+        node "${{ github.action_path }}/dist/main.js" resolve-codex-home "${{ inputs['codex-home'] }}"
+
+    - name: Determine server info path
+      id: derive_server_info
+      shell: bash
+      run: |
+        server_info_file="${{ steps.resolve_home.outputs.codex-home }}/${{ github.run_id }}.json"
+        echo "server_info_file=$server_info_file" >> "$GITHUB_OUTPUT"
+
     - name: Start Responses API proxy
       id: start_proxy
+      if: ${{ inputs['openai-api-key'] != '' }}
       env:
         OPENAI_API_KEY: ${{ inputs['openai-api-key'] }}
       shell: bash
       run: |
-        tmpfile=$(mktemp)
+        server_info_file="${{ steps.derive_server_info.outputs.server_info_file }}"
+        if [ -s "$server_info_file" ]; then
+          echo "Responses API proxy already appears to be running (found $server_info_file)."
+          exit 0
+        fi
         (
-          printenv OPENAI_API_KEY | codex-responses-api-proxy --http-shutdown --server-info "$tmpfile"
+          printenv OPENAI_API_KEY | codex-responses-api-proxy --http-shutdown --server-info "$server_info_file"
         ) &
         for _ in {1..10}; do
-          if [ -s "$tmpfile" ]; then
+          if [ -s "$server_info_file" ]; then
             break
           fi
           sleep 1
         done
-        if [ ! -s "$tmpfile" ]; then
+        if [ ! -s "$server_info_file" ]; then
           echo "responses-api-proxy did not write server info" >&2
           exit 1
         fi
-        echo "server_info_file=$tmpfile" >> "$GITHUB_OUTPUT"
 
     # This step has an output named `port`.
     - name: Read server info
       id: read_server_info
+      if: ${{ inputs['openai-api-key'] != '' || inputs.prompt != '' || inputs['prompt-file'] != '' }}
       shell: bash
-      run: node "${{ github.action_path }}/dist/main.js" read-server-info "${{ steps.start_proxy.outputs.server_info_file }}"
+      run: node "${{ github.action_path }}/dist/main.js" read-server-info "${{ steps.derive_server_info.outputs.server_info_file }}"
+
+    - name: Write Codex proxy config
+      if: ${{ inputs['openai-api-key'] != '' }}
+      shell: bash
+      run: |
+        node "${{ github.action_path }}/dist/main.js" write-proxy-config \
+          --codex-home "${{ steps.resolve_home.outputs.codex-home }}" \
+          --port "${{ steps.read_server_info.outputs.port }}"
 
     - name: Drop sudo privilege, if appropriate
-      if: ${{ inputs['safety-strategy'] == 'drop-sudo' }}
+      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' }}
       shell: bash
       run: |
         case "${RUNNER_OS}" in
@@ -173,7 +200,7 @@ runs:
         esac
 
     - name: Verify sudo privilege removed
-      if: ${{ inputs['safety-strategy'] == 'drop-sudo' }}
+      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' }}
       shell: bash
       run: |
         if sudo -n true 2>/dev/null; then
@@ -184,11 +211,12 @@ runs:
 
     - name: Run codex exec
       id: run_codex
+      if: ${{ inputs.prompt != '' || inputs['prompt-file'] != '' }}
       env:
         CODEX_PROMPT: ${{ inputs.prompt }}
         CODEX_PROMPT_FILE: ${{ inputs['prompt-file'] }}
         CODEX_OUTPUT_FILE: ${{ inputs['output-file'] }}
-        CODEX_HOME: ${{ inputs['codex-home'] }}
+        CODEX_HOME: ${{ steps.resolve_home.outputs.codex-home }}
         CODEX_WORKING_DIRECTORY: ${{ inputs['working-directory'] || github.workspace }}
         CODEX_SANDBOX: ${{ inputs.sandbox }}
         CODEX_ARGS: ${{ inputs['codex-args'] }}
@@ -206,7 +234,6 @@ runs:
             --output-file "$CODEX_OUTPUT_FILE" \
             --codex-home "$CODEX_HOME" \
             --cd "$CODEX_WORKING_DIRECTORY" \
-            --proxy-port "${{ steps.read_server_info.outputs.port }}" \
             --extra-args "$CODEX_ARGS" \
             --output-schema "$CODEX_OUTPUT_SCHEMA" \
             --output-schema-file "$CODEX_OUTPUT_SCHEMA_FILE" \
@@ -214,9 +241,3 @@ runs:
             --model "$CODEX_MODEL" \
             --safety-strategy "$CODEX_SAFETY_STRATEGY" \
             --codex-user "$CODEX_USER"
-
-    - name: Shutdown codex webserver
-      env:
-        CODEX_SERVER_PORT: ${{ steps.read_server_info.outputs.port }}
-      shell: bash
-      run: curl --fail --silent --show-error "http://127.0.0.1:${CODEX_SERVER_PORT}/shutdown"
