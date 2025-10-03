@@ -33,7 +33,7 @@ Provide either `prompt` or `prompt-file`; the other may be left empty. The actio
 
 | Name                 | Required      | Description                                                                                                                             | Default          |
 | -------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
-| `openai-api-key`     | Yes           | Secret used to authenticate the helper proxy with OpenAI. Store it in `secrets` and never hardcode it.                                  | —                |
+| `openai-api-key`     | Conditionally | Secret used to start the Responses API proxy. Required when starting the proxy (key-only or key+prompt). Store it in `secrets`.         | `""`             |
 | `prompt`             | Conditionally | Inline prompt text. Provide this or `prompt-file`.                                                                                      | `""`             |
 | `prompt-file`        | Conditionally | Path (relative to the repository root) of a file that contains the prompt. Provide this or `prompt`.                                    | `""`             |
 | `output-file`        | No            | File where the final Codex message is written. Leave empty to skip writing a file.                                                      | `""`             |
@@ -86,7 +86,8 @@ Replace `steps.codex` with the `id` assigned to your action step.
 - Run this action after `actions/checkout@v5` so Codex has access to your repository contents.
 - If you want Codex to have access to a narrow set of privileged functionality, consider running a local MCP server that can perform these actions and configure Codex to use it.
 - If you need more control over the CLI invocation, pass flags through `codex-args` or create a `config.toml` in `codex-home`.
+- Once `openai/codex-action` is run once with `openai-api-key`, you can also call `codex` from subsequent scripts in your job. (You can omit `prompt` and `prompt-file` from the action in this case.)
 
 ## License
 
-This project is licensed under the [Apache License 2.0](./LICENSE)
+This project is licensed under the [Apache License 2.0](./LICENSE).

@@ -38,7 +38,6 @@ export async function runCodexExec({
   prompt,
   codexHome,
   cd,
-  proxyPort,
   extraArgs,
   explicitOutputFile,
   outputSchema,
@@ -50,7 +49,6 @@ export async function runCodexExec({
   prompt: PromptSource;
   codexHome: string | null;
   cd: string;
-  proxyPort: number;
   extraArgs: Array<string>;
   explicitOutputFile: string | null;
   outputSchema: OutputSchemaSource | null;
@@ -94,20 +92,12 @@ export async function runCodexExec({
     command.push("sudo", "-u", codexUser, "--");
   }
 
-  const providerBaseUrl = `http://127.0.0.1:${proxyPort}/v1`;
-  const providerId = "openai-proxy";
-  const providerConfig = `model_providers.${providerId}={ name = "OpenAI Proxy", base_url = "${providerBaseUrl}", wire_api = "responses" }`;
-
   command.push(
     "codex",
     "exec",
     "--skip-git-repo-check",
     "--cd",
     cd,
-    "--config",
-    providerConfig,
-    "--config",
-    `model_provider="${providerId}"`,
     "--output-last-message",
     outputFile.file
   );
