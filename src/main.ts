@@ -71,6 +71,10 @@ export async function main() {
       "Path where the final message from `codex exec` will be written."
     )
     .requiredOption(
+      "--output-schema-file <FILE>",
+      "Path to a schema file to pass to `codex exec --output-schema`."
+    )
+    .requiredOption(
       "--safety-strategy <strategy>",
       "Safety strategy to use. One of 'drop_sudo', 'read_only', 'unprivileged_user', or 'unsafe'."
     )
@@ -87,6 +91,7 @@ export async function main() {
         proxyPort: number;
         extraArgs: Array<string>;
         outputFile: string;
+        outputSchemaFile: string;
         safetyStrategy: string;
         codexUser: string;
       }) => {
@@ -98,6 +103,7 @@ export async function main() {
           proxyPort,
           extraArgs,
           outputFile,
+          outputSchemaFile,
           safetyStrategy,
           codexUser,
         } = options;
@@ -124,6 +130,7 @@ export async function main() {
           proxyPort,
           extraArgs,
           explicitOutputFile: emptyAsNull(outputFile),
+          outputSchemaFile: emptyAsNull(outputSchemaFile),
           safetyStrategy: toSafetyStrategy(safetyStrategy),
           codexUser: emptyAsNull(codexUser),
         });

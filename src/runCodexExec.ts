@@ -26,6 +26,7 @@ export async function runCodexExec({
   proxyPort,
   extraArgs,
   explicitOutputFile,
+  outputSchemaFile,
   safetyStrategy,
   codexUser,
 }: {
@@ -35,6 +36,7 @@ export async function runCodexExec({
   proxyPort: number;
   extraArgs: Array<string>;
   explicitOutputFile: string | null;
+  outputSchemaFile: string | null;
   safetyStrategy: SafetyStrategy;
   codexUser: string | null;
 }): Promise<void> {
@@ -84,6 +86,11 @@ export async function runCodexExec({
     "--output-last-message",
     outputFile.file
   );
+
+  if (outputSchemaFile != null) {
+    command.push("--output-schema", outputSchemaFile);
+  }
+
   command.push(...extraArgs);
 
   // Note that if profiles expand to support their own sandbox policies, a
