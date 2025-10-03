@@ -19,6 +19,11 @@ export type SafetyStrategy =
   | "unprivileged_user"
   | "unsafe";
 
+export type SandboxMode =
+  | "read-only"
+  | "workspace-write"
+  | "danger-full-access";
+
 export type OutputSchemaSource =
   | {
       type: "file";
@@ -40,6 +45,7 @@ export async function runCodexExec({
   model,
   safetyStrategy,
   codexUser,
+  sandbox,
 }: {
   prompt: PromptSource;
   codexHome: string | null;
@@ -51,6 +57,7 @@ export async function runCodexExec({
   model: string | null;
   safetyStrategy: SafetyStrategy;
   codexUser: string | null;
+  sandbox: SandboxMode;
 }): Promise<void> {
   let input: string;
   switch (prompt.type) {
@@ -70,6 +77,10 @@ export async function runCodexExec({
   }
 
   const resolvedOutputSchema = await resolveOutputSchema(outputSchema);
+  const sandboxMode = await determineSandboxMode({
+    safetyStrategy,
+    requestedSandbox: sandbox,
+  });
 
   const command: Array<string> = [];
 
@@ -111,11 +122,7 @@ export async function runCodexExec({
 
   command.push(...extraArgs);
 
-  // Note that if profiles expand to support their own sandbox policies, a
-  // custom profile could override this setting.
-  if (safetyStrategy === "read_only") {
-    command.push("--config", 'sandbox_mode="read-only"');
-  }
+  command.push("--sandbox", sandboxMode);
 
   const env = { ...process.env };
   let extraEnv = "";
@@ -242,5 +249,19 @@ async function cleanupOutputSchema(
     case "temp":
       await rm(schema.dir, { recursive: true, force: true });
       return;
+  }
+}
+
+async function determineSandboxMode({
+  safetyStrategy,
+  requestedSandbox,
+}: {
+  safetyStrategy: SafetyStrategy;
+  requestedSandbox: SandboxMode;
+}): Promise<SandboxMode> {
+  if (safetyStrategy === "read_only") {
+    return "read-only";
+  } else {
+    return requestedSandbox;
   }
 }
