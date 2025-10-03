@@ -47,7 +47,7 @@ Provide either `prompt` or `prompt-file`; the other may be left empty. The actio
 | `codex-home`         | Directory to use as the Codex CLI home (config/cache). Uses the CLI default when empty.                                                 | `""`             |
 | `safety-strategy`    | Controls how the action restricts Codex privileges. See [Safety strategy](#safety-strategy).                                            | `drop-sudo`      |
 | `codex-user`         | Username to run Codex as when `safety-strategy` is `unprivileged-user`.                                                                 | `""`             |
-| `require-repo-write` | Whether to require the triggering actor to have write access to the repository before running.                                          | "true"           |
+| `allow-users`        | List of GitHub usernames who can trigger the action in addition to those who have write access to the repo.                             | ""               |
 | `allow-bots`         | Allow runs triggered by GitHub Apps/bot accounts to bypass the write-access check.                                                      | "false"          |
 
 ## Safety Strategy
