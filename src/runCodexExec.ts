@@ -14,9 +14,9 @@ export type PromptSource =
     };
 
 export type SafetyStrategy =
-  | "drop_sudo"
-  | "read_only"
-  | "unprivileged_user"
+  | "drop-sudo"
+  | "read-only"
+  | "unprivileged-user"
   | "unsafe";
 
 export type SandboxMode =
@@ -84,10 +84,10 @@ export async function runCodexExec({
 
   const command: Array<string> = [];
 
-  if (safetyStrategy === "unprivileged_user") {
+  if (safetyStrategy === "unprivileged-user") {
     if (codexUser == null) {
       throw new Error(
-        "codexUser must be specified when using the 'unprivileged_user' safety strategy."
+        "codexUser must be specified when using the 'unprivileged-user' safety strategy."
       );
     }
 
@@ -171,7 +171,7 @@ export async function runCodexExec({
 async function finalizeExecution(outputFile: OutputFile): Promise<void> {
   try {
     const lastMessage = await readFile(outputFile.file, "utf8");
-    setOutput("final_message", lastMessage);
+    setOutput("final-message", lastMessage);
   } finally {
     await cleanupTempOutput(outputFile);
   }
@@ -259,7 +259,7 @@ async function determineSandboxMode({
   safetyStrategy: SafetyStrategy;
   requestedSandbox: SandboxMode;
 }): Promise<SandboxMode> {
-  if (safetyStrategy === "read_only") {
+  if (safetyStrategy === "read-only") {
     return "read-only";
   } else {
     return requestedSandbox;
