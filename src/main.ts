@@ -74,6 +74,7 @@ export async function main() {
       "--output-schema-file <FILE>",
       "Path to a schema file to pass to `codex exec --output-schema`."
     )
+    .requiredOption("--model <model>", "Model the agent should use")
     .requiredOption(
       "--safety-strategy <strategy>",
       "Safety strategy to use. One of 'drop_sudo', 'read_only', 'unprivileged_user', or 'unsafe'."
@@ -92,6 +93,7 @@ export async function main() {
         extraArgs: Array<string>;
         outputFile: string;
         outputSchemaFile: string;
+        model: string;
         safetyStrategy: string;
         codexUser: string;
       }) => {
@@ -104,6 +106,7 @@ export async function main() {
           extraArgs,
           outputFile,
           outputSchemaFile,
+          model,
           safetyStrategy,
           codexUser,
         } = options;
@@ -131,6 +134,7 @@ export async function main() {
           extraArgs,
           explicitOutputFile: emptyAsNull(outputFile),
           outputSchemaFile: emptyAsNull(outputSchemaFile),
+          model: emptyAsNull(model),
           safetyStrategy: toSafetyStrategy(safetyStrategy),
           codexUser: emptyAsNull(codexUser),
         });
