@@ -91,11 +91,11 @@ export async function main() {
     .requiredOption("--model <model>", "Model the agent should use")
     .requiredOption(
       "--safety-strategy <strategy>",
-      "Safety strategy to use. One of 'drop_sudo', 'read_only', 'unprivileged_user', or 'unsafe'."
+      "Safety strategy to use. One of 'drop-sudo', 'read-only', 'unprivileged-user', or 'unsafe'."
     )
     .requiredOption(
       "--codex-user <user>",
-      "User to run codex exec as when using the 'unprivileged_user' safety strategy."
+      "User to run codex exec as when using the 'unprivileged-user' safety strategy."
     )
     .action(
       async (options: {
@@ -138,7 +138,7 @@ export async function main() {
           promptSource = { type: "file", path: normalizedPromptFile };
         } else {
           throw new Error(
-            "Either `prompt` or `prompt_file` must be specified."
+            "Either `prompt` or `prompt-file` must be specified."
           );
         }
 
@@ -152,7 +152,7 @@ export async function main() {
           normalizedOutputSchema != null
         ) {
           throw new Error(
-            "Only one of `output_schema` or `output_schema_file` may be specified."
+            "Only one of `output-schema` or `output-schema-file` may be specified."
           );
         }
 
@@ -238,14 +238,14 @@ function parseExtraArgs(value: string): Array<string> {
 
 function toSafetyStrategy(value: string): SafetyStrategy {
   switch (value) {
-    case "drop_sudo":
-    case "read_only":
-    case "unprivileged_user":
+    case "drop-sudo":
+    case "read-only":
+    case "unprivileged-user":
     case "unsafe":
       return value;
     default:
       throw new Error(
-        `Invalid safety strategy: ${value}. Must be one of 'drop_sudo', 'read_only', 'unprivileged_user', or 'unsafe'.`
+        `Invalid safety strategy: ${value}. Must be one of 'drop-sudo', 'read-only', 'unprivileged-user', or 'unsafe'.`
       );
   }
 }
