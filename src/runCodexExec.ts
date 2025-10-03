@@ -27,6 +27,7 @@ export async function runCodexExec({
   extraArgs,
   explicitOutputFile,
   outputSchemaFile,
+  model,
   safetyStrategy,
   codexUser,
 }: {
@@ -37,6 +38,7 @@ export async function runCodexExec({
   extraArgs: Array<string>;
   explicitOutputFile: string | null;
   outputSchemaFile: string | null;
+  model: string | null;
   safetyStrategy: SafetyStrategy;
   codexUser: string | null;
 }): Promise<void> {
@@ -89,6 +91,10 @@ export async function runCodexExec({
 
   if (outputSchemaFile != null) {
     command.push("--output-schema", outputSchemaFile);
+  }
+
+  if (model != null) {
+    command.push("--model", model);
   }
 
   command.push(...extraArgs);
