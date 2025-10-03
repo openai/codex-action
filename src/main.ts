@@ -3,6 +3,7 @@ import pkg from "../package.json" assert { type: "json" };
 
 import { readServerInfo } from "./readServerInfo";
 import {
+  SandboxMode,
   OutputSchemaSource,
   PromptSource,
   runCodexExec,
@@ -83,6 +84,10 @@ export async function main() {
       "--output-schema <SCHEMA>",
       "Inline schema contents to pass to `codex exec --output-schema`."
     )
+    .requiredOption(
+      "--sandbox <SANDBOX>",
+      "Sandbox mode override to pass to `codex exec`."
+    )
     .requiredOption("--model <model>", "Model the agent should use")
     .requiredOption(
       "--safety-strategy <strategy>",
@@ -103,6 +108,7 @@ export async function main() {
         outputFile: string;
         outputSchemaFile: string;
         outputSchema: string;
+        sandbox: string;
         model: string;
         safetyStrategy: string;
         codexUser: string;
@@ -117,6 +123,7 @@ export async function main() {
           extraArgs,
           outputSchema,
           outputSchemaFile,
+          sandbox,
           model,
           safetyStrategy,
           codexUser,
@@ -139,6 +146,7 @@ export async function main() {
         // Commander.js's requiredOption, so we have to post-process here.
         const normalizedOutputSchemaFile = emptyAsNull(outputSchemaFile);
         const normalizedOutputSchema = emptyAsNull(outputSchema);
+        const normalizedSandbox = emptyAsNull(sandbox);
 
         if (
           normalizedOutputSchemaFile != null &&
@@ -162,6 +170,11 @@ export async function main() {
           };
         }
 
+        let sandboxMode: SandboxMode | null = null;
+        if (normalizedSandbox != null) {
+          sandboxMode = toSandboxMode(normalizedSandbox);
+        }
+
         await runCodexExec({
           prompt: promptSource,
           codexHome: emptyAsNull(codexHome),
@@ -170,6 +183,7 @@ export async function main() {
           extraArgs,
           explicitOutputFile: emptyAsNull(outputFile),
           outputSchema: outputSchemaSource,
+          sandbox: sandboxMode,
           model: emptyAsNull(model),
           safetyStrategy: toSafetyStrategy(safetyStrategy),
           codexUser: emptyAsNull(codexUser),
@@ -238,6 +252,19 @@ function toSafetyStrategy(value: string): SafetyStrategy {
     default:
       throw new Error(
         `Invalid safety strategy: ${value}. Must be one of 'drop_sudo', 'read_only', 'unprivileged_user', or 'unsafe'.`
+      );
+  }
+}
+
+function toSandboxMode(value: string): SandboxMode {
+  switch (value) {
+    case "read-only":
+    case "workspace-write":
+    case "danger-full-access":
+      return value;
+    default:
+      throw new Error(
+        `Invalid sandbox: ${value}. Must be one of 'read-only', 'workspace-write', or 'danger-full-access'.`
       );
   }
 }

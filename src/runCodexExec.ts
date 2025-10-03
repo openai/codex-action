@@ -19,6 +19,11 @@ export type SafetyStrategy =
   | "unprivileged_user"
   | "unsafe";
 
+export type SandboxMode =
+  | "read-only"
+  | "workspace-write"
+  | "danger-full-access";
+
 export type OutputSchemaSource =
   | {
       type: "file";
@@ -40,6 +45,7 @@ export async function runCodexExec({
   model,
   safetyStrategy,
   codexUser,
+  sandbox,
 }: {
   prompt: PromptSource;
   codexHome: string | null;
@@ -51,6 +57,7 @@ export async function runCodexExec({
   model: string | null;
   safetyStrategy: SafetyStrategy;
   codexUser: string | null;
+  sandbox: SandboxMode | null;
 }): Promise<void> {
   let input: string;
   switch (prompt.type) {
@@ -70,6 +77,11 @@ export async function runCodexExec({
   }
 
   const resolvedOutputSchema = await resolveOutputSchema(outputSchema);
+  const sandboxMode = await determineSandboxMode({
+    safetyStrategy,
+    requestedSandbox: sandbox,
+    workingDirectory: cd,
+  });
 
   const command: Array<string> = [];
 
@@ -111,11 +123,7 @@ export async function runCodexExec({
 
   command.push(...extraArgs);
 
-  // Note that if profiles expand to support their own sandbox policies, a
-  // custom profile could override this setting.
-  if (safetyStrategy === "read_only") {
-    command.push("--config", 'sandbox_mode="read-only"');
-  }
+  command.push("--sandbox", sandboxMode);
 
   const env = { ...process.env };
   let extraEnv = "";
@@ -243,4 +251,46 @@ async function cleanupOutputSchema(
       await rm(schema.dir, { recursive: true, force: true });
       return;
   }
+}
+
+async function determineSandboxMode({
+  safetyStrategy,
+  requestedSandbox,
+  workingDirectory,
+}: {
+  safetyStrategy: SafetyStrategy;
+  requestedSandbox: SandboxMode | null;
+  workingDirectory: string;
+}): Promise<SandboxMode> {
+  if (safetyStrategy === "read_only") {
+    return "read-only";
+  }
+
+  if (requestedSandbox != null) {
+    return requestedSandbox;
+  }
+
+  const isGitRepo = await isGitRepository(workingDirectory);
+  return isGitRepo ? "workspace-write" : "read-only";
+}
+
+function isGitRepository(directory: string): Promise<boolean> {
+  return new Promise<boolean>((resolve, reject) => {
+    const child = spawn("git", ["rev-parse", "--show-toplevel"], {
+      cwd: directory,
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+
+    child.on("error", (error) => {
+      reject(false);
+    });
+
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve(true);
+      } else {
+        reject(false);
+      }
+    });
+  });
 }

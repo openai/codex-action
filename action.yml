@@ -21,6 +21,14 @@ inputs:
     description: "Optional working directory to `cd` into before running `codex exec`."
     required: false
     default: ""
+  sandbox:
+    description: |
+      Sandbox mode for Codex. By default, the action chooses `workspace-write` when the
+      `working_directory` is a Git repository; otherwise, it falls back to `read-only`.
+      Set this input to override the default and specify one of `read-only`,
+      `workspace-write`, or `danger-full-access`.
+    required: false
+    default: ""
   codex_version:
     description: "Version of `@openai/codex` to install."
     required: false
@@ -185,6 +193,7 @@ runs:
         CODEX_OUTPUT_FILE: ${{ inputs.output_file }}
         CODEX_HOME: ${{ inputs.codex_home }}
         CODEX_WORKING_DIRECTORY: ${{ inputs.working_directory || github.workspace }}
+        CODEX_SANDBOX: ${{ inputs.sandbox }}
         CODEX_ARGS: ${{ inputs.codex_args }}
         CODEX_OUTPUT_SCHEMA: ${{ inputs.output_schema }}
         CODEX_OUTPUT_SCHEMA_FILE: ${{ inputs.output_schema_file }}
@@ -204,6 +213,7 @@ runs:
             --extra-args "$CODEX_ARGS" \
             --output-schema "$CODEX_OUTPUT_SCHEMA" \
             --output-schema-file "$CODEX_OUTPUT_SCHEMA_FILE" \
+            --sandbox "$CODEX_SANDBOX" \
             --model "$CODEX_MODEL" \
             --safety-strategy "$CODEX_SAFETY_STRATEGY" \
             --codex-user "$CODEX_USER"
