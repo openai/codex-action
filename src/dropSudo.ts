@@ -26,7 +26,7 @@ export async function dropSudo(options: DropSudoOptions): Promise<void> {
   const platform = process.platform;
   if (![LINUX_PLATFORM, MACOS_PLATFORM].includes(platform)) {
     throw new Error(
-      `Unsupported OS for drop_sudo safety strategy: ${platform}`
+      `Unsupported OS for drop-sudo safety strategy: ${platform}`
     );
   }
 
@@ -118,7 +118,7 @@ async function dropSudoWithPrivileges(options: DropSudoOptions): Promise<void> {
     }
     default: {
       throw new Error(
-        `Unsupported OS for drop_sudo safety strategy: ${process.platform}`
+        `Unsupported OS for drop-sudo safety strategy: ${process.platform}`
       );
     }
   }
