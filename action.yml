@@ -10,6 +10,10 @@ inputs:
     description: "Path to file that contains the prompt to pass to `codex exec`. `prompt` or `prompt_file` must be provided."
     required: false
     default: ""
+  output_file:
+    description: "Path to a JSON Schema file describing the model's final response shape."
+    required: false
+    default: ""
   openai_api_key:
     description: "OpenAI API key used by the Codex CLI."
     required: true
@@ -25,8 +29,8 @@ inputs:
     description: "Additional args to pass through to `codex exec`. If this value starts with `[`, it will be parsed as a JSON array; otherwise, it will be parsed as a shell-like string."
     required: false
     default: ""
-  output_file:
-    description: "Path to a JSON Schema file describing the model's final response shape."
+  output_schema:
+    description: "Inline schema contents to use with `codex exec --output-schema`."
     required: false
     default: ""
   output_schema_file:
@@ -178,10 +182,11 @@ runs:
       env:
         CODEX_PROMPT: ${{ inputs.prompt }}
         CODEX_PROMPT_FILE: ${{ inputs.prompt_file }}
+        CODEX_OUTPUT_FILE: ${{ inputs.output_file }}
         CODEX_HOME: ${{ inputs.codex_home }}
         CODEX_WORKING_DIRECTORY: ${{ inputs.working_directory || github.workspace }}
         CODEX_ARGS: ${{ inputs.codex_args }}
-        CODEX_OUTPUT_FILE: ${{ inputs.output_file }}
+        CODEX_OUTPUT_SCHEMA: ${{ inputs.output_schema }}
         CODEX_OUTPUT_SCHEMA_FILE: ${{ inputs.output_schema_file }}
         CODEX_MODEL: ${{ inputs.model }}
         CODEX_SAFETY_STRATEGY: ${{ inputs.safety_strategy }}
@@ -191,11 +196,12 @@ runs:
         node "${{ github.action_path }}/dist/main.js" run-codex-exec \
             --prompt "${CODEX_PROMPT}" \
             --prompt-file "${CODEX_PROMPT_FILE}" \
+            --output-file "$CODEX_OUTPUT_FILE" \
             --codex-home "$CODEX_HOME" \
             --cd "$CODEX_WORKING_DIRECTORY" \
             --proxy-port "${{ steps.read_server_info.outputs.port }}" \
             --extra-args "$CODEX_ARGS" \
-            --output-file "$CODEX_OUTPUT_FILE" \
+            --output-schema "$CODEX_OUTPUT_SCHEMA" \
             --output-schema-file "$CODEX_OUTPUT_SCHEMA_FILE" \
             --model "$CODEX_MODEL" \
             --safety-strategy "$CODEX_SAFETY_STRATEGY" \

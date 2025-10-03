@@ -1,11 +1,11 @@
 import { spawn } from "child_process";
-import { mkdtemp, readFile, rm } from "fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import path from "path";
 import { setOutput } from "@actions/core";
 
 export type PromptSource =
   | {
-      type: "text";
+      type: "inline";
       content: string;
     }
   | {
@@ -19,6 +19,16 @@ export type SafetyStrategy =
   | "unprivileged_user"
   | "unsafe";
 
+export type OutputSchemaSource =
+  | {
+      type: "file";
+      path: string;
+    }
+  | {
+      type: "inline";
+      content: string;
+    };
+
 export async function runCodexExec({
   prompt,
   codexHome,
@@ -26,7 +36,7 @@ export async function runCodexExec({
   proxyPort,
   extraArgs,
   explicitOutputFile,
-  outputSchemaFile,
+  outputSchema,
   model,
   safetyStrategy,
   codexUser,
@@ -37,14 +47,14 @@ export async function runCodexExec({
   proxyPort: number;
   extraArgs: Array<string>;
   explicitOutputFile: string | null;
-  outputSchemaFile: string | null;
+  outputSchema: OutputSchemaSource | null;
   model: string | null;
   safetyStrategy: SafetyStrategy;
   codexUser: string | null;
 }): Promise<void> {
   let input: string;
   switch (prompt.type) {
-    case "text":
+    case "inline":
       input = prompt.content;
       break;
     case "file":
@@ -58,6 +68,8 @@ export async function runCodexExec({
   } else {
     outputFile = await createTempOutputFile();
   }
+
+  const resolvedOutputSchema = await resolveOutputSchema(outputSchema);
 
   const command: Array<string> = [];
 
@@ -89,8 +101,8 @@ export async function runCodexExec({
     outputFile.file
   );
 
-  if (outputSchemaFile != null) {
-    command.push("--output-schema", outputSchemaFile);
+  if (resolvedOutputSchema != null) {
+    command.push("--output-schema", resolvedOutputSchema.file);
   }
 
   if (model != null) {
@@ -119,30 +131,34 @@ export async function runCodexExec({
       .map((a) => JSON.stringify(a))
       .join(" ")}`
   );
-  return new Promise((resolve, reject) => {
-    const child = spawn(program, command, {
-      env,
-      stdio: ["pipe", "inherit", "inherit"],
+  try {
+    await new Promise((resolve, reject) => {
+      const child = spawn(program, command, {
+        env,
+        stdio: ["pipe", "inherit", "inherit"],
+      });
+      child.stdin.write(input);
+      child.stdin.end();
+
+      child.on("error", reject);
+
+      child.on("close", async (code) => {
+        if (code !== 0) {
+          reject(new Error(`${program} exited with code ${code}`));
+          return;
+        }
+
+        try {
+          await finalizeExecution(outputFile);
+          resolve(undefined);
+        } catch (err) {
+          reject(err);
+        }
+      });
     });
-    child.stdin.write(input);
-    child.stdin.end();
-
-    child.on("error", reject);
-
-    child.on("close", async (code) => {
-      if (code !== 0) {
-        reject(new Error(`${program} exited with code ${code}`));
-        return;
-      }
-
-      try {
-        await finalizeExecution(outputFile);
-        resolve();
-      } catch (err) {
-        reject(err);
-      }
-    });
-  });
+  } finally {
+    await cleanupOutputSchema(resolvedOutputSchema);
+  }
 }
 
 async function finalizeExecution(outputFile: OutputFile): Promise<void> {
@@ -164,6 +180,17 @@ type OutputFile =
       file: string;
     };
 
+type ResolvedOutputSchema =
+  | {
+      type: "explicit";
+      file: string;
+    }
+  | {
+      type: "temp";
+      file: string;
+      dir: string;
+    };
+
 async function createTempOutputFile(): Promise<OutputFile> {
   const dir = await mkdtemp("codex-exec-");
   return { type: "temp", file: path.join(dir, "output.md") };
@@ -180,5 +207,40 @@ async function cleanupTempOutput(outputFile: OutputFile): Promise<void> {
       await rm(dir, { recursive: true, force: true });
       break;
     }
+  }
+}
+
+async function resolveOutputSchema(
+  schema: OutputSchemaSource | null
+): Promise<ResolvedOutputSchema | null> {
+  if (schema == null) {
+    return null;
+  }
+
+  switch (schema.type) {
+    case "file":
+      return { type: "explicit", file: schema.path };
+    case "inline": {
+      const dir = await mkdtemp("codex-output-schema-");
+      const file = path.join(dir, "schema.json");
+      await writeFile(file, schema.content);
+      return { type: "temp", file, dir };
+    }
+  }
+}
+
+async function cleanupOutputSchema(
+  schema: ResolvedOutputSchema | null
+): Promise<void> {
+  if (schema == null) {
+    return;
+  }
+
+  switch (schema.type) {
+    case "explicit":
+      return;
+    case "temp":
+      await rm(schema.dir, { recursive: true, force: true });
+      return;
   }
 }
