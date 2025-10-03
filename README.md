@@ -33,7 +33,7 @@ Provide either `prompt` or `prompt-file`; the other may be left empty. The actio
 
 | Name                 | Required      | Description                                                                                                                             | Default          |
 | -------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
-| `openai-api-key`     | Yes           | Secret used to authenticate the helper proxy with OpenAI. Store it in `secrets` and never hardcode it.                                  | —                |
+| `openai-api-key`     | Conditionally | Secret used to start the Responses API proxy. Required when starting the proxy (key-only or key+prompt). Store it in `secrets`.         | `""`             |
 | `prompt`             | Conditionally | Inline prompt text. Provide this or `prompt-file`.                                                                                      | `""`             |
 | `prompt-file`        | Conditionally | Path (relative to the repository root) of a file that contains the prompt. Provide this or `prompt`.                                    | `""`             |
 | `output-file`        | No            | File where the final Codex message is written. Leave empty to skip writing a file.                                                      | `""`             |
@@ -75,17 +75,42 @@ You can reference the output from later steps:
 ```yaml
 # steps.codex refers to the `id: codex` step in the above example.
 - name: Capture Codex result
-  run: |
-    echo "New Codex said: ${{ steps.codex.outputs.final-message }}"
+  run: echo "Codex said: ${{ steps.codex.outputs['final-message'] }}"
 ```
 
 Replace `steps.codex` with the `id` assigned to your action step.
+
+## Multi-Run Policy
+
+This action can be invoked multiple times within the same job. Behavior depends on which inputs are set:
+
+- Key and prompt set: Starts the Responses API proxy (if not already running) and runs Codex. The proxy remains running afterward.
+- Key only: Starts the Responses API proxy and leaves it running for later steps.
+- Prompt only: Runs Codex; assumes the proxy was started earlier in the job.
+
+The proxy writes server info to `CODEX_HOME/<run_id>.json` (`<run_id>` is `github.run_id`). Subsequent invocations reuse this file.
+
+When the proxy is started, the action updates `CODEX_HOME/config.toml` to:
+
+- set `model_provider = "openai-proxy"` at the top level, and
+- define the `[model_providers.openai-proxy]` table with `base_url` pointing to the local proxy and `wire_api = "responses"`.
+
+This ensures that shell invocations of `codex` in later steps route through the proxy by default.
+
+## Codex Home Resolution
+
+The Codex home directory is resolved in this order:
+
+1. `codex-home` input, if provided (supports `~` expansion)
+2. `CODEX_HOME` environment variable, if set
+3. Default: `~/.codex`
 
 ## Additional tips
 
 - Run this action after `actions/checkout@v5` so Codex has access to your repository contents.
 - If you want Codex to have access to a narrow set of privileged functionality, consider running a local MCP server that can perform these actions and configure Codex to use it.
 - If you need more control over the CLI invocation, pass flags through `codex-args` or create a `config.toml` in `codex-home`.
+- Once `openai/codex-action` is run once with `openai-api-key`, you can also call `codex` from subsequent scripts in your job.
 
 ## License
 

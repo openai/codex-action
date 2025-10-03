@@ -1,4 +1,7 @@
 import { Command, Option } from "commander";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import pkg from "../package.json" assert { type: "json" };
 
 import { readServerInfo } from "./readServerInfo";
@@ -12,6 +15,7 @@ import {
 import { dropSudo } from "./dropSudo";
 import { ensureActorHasWriteAccess } from "./checkActorPermissions";
 import parseArgsStringToArgv from "string-argv";
+import { writeProxyConfig } from "./writeProxyConfig";
 
 export async function main() {
   const program = new Command();
@@ -27,6 +31,37 @@ export async function main() {
     .argument("<serverInfoFile>", "Path to the server info file")
     .action(async (serverInfoFile: string) => {
       await readServerInfo(serverInfoFile);
+    });
+
+  program
+    .command("resolve-codex-home")
+    .description(
+      "Resolve the Codex home directory with precedence: input, env, default (~/.codex)"
+    )
+    .argument(
+      "[inputCodexHome]",
+      "Optional codex-home input value (may be empty)"
+    )
+    .action(async (inputCodexHome?: string) => {
+      const resolved = await resolveCodexHome(
+        emptyAsNull(inputCodexHome ?? "")
+      );
+      // Ensure directory exists for downstream steps that will write files here.
+      await fs.mkdir(resolved, { recursive: true });
+      const { setOutput } = await import("@actions/core");
+      setOutput("codex-home", resolved);
+      console.log(`Resolved Codex home: ${resolved}`);
+    });
+
+  program
+    .command("write-proxy-config")
+    .description(
+      "Write the OpenAI Proxy model provider config into CODEX_HOME/config.toml"
+    )
+    .requiredOption("--codex-home <DIRECTORY>", "Path to Codex home directory")
+    .requiredOption("--port <port>", "Proxy server port", parseIntStrict)
+    .action(async (options: { codexHome: string; port: number }) => {
+      await writeProxyConfig(options.codexHome, options.port);
     });
 
   program
@@ -63,11 +98,6 @@ export async function main() {
     )
     .requiredOption("--cd <DIRECTORY>", "Working directory for Codex")
     .requiredOption(
-      "--proxy-port <port>",
-      "Port of the Responses API Proxy",
-      parseIntStrict
-    )
-    .requiredOption(
       "--extra-args <args>",
       "Additional args to pass through to `codex exec` as JSON array or shell string.",
       parseExtraArgs
@@ -103,7 +133,6 @@ export async function main() {
         promptFile: string;
         codexHome: string;
         cd: string;
-        proxyPort: number;
         extraArgs: Array<string>;
         outputFile: string;
         outputSchemaFile: string;
@@ -119,7 +148,6 @@ export async function main() {
           outputFile,
           codexHome,
           cd,
-          proxyPort,
           extraArgs,
           outputSchema,
           outputSchemaFile,
@@ -131,6 +159,12 @@ export async function main() {
 
         const normalizedPrompt = emptyAsNull(prompt);
         const normalizedPromptFile = emptyAsNull(promptFile);
+        if (normalizedPrompt != null && normalizedPromptFile != null) {
+          throw new Error(
+            "Only one of `prompt` or `prompt-file` may be specified."
+          );
+        }
+
         let promptSource: PromptSource;
         if (normalizedPrompt != null) {
           promptSource = { type: "inline", content: normalizedPrompt };
@@ -173,7 +207,6 @@ export async function main() {
           prompt: promptSource,
           codexHome: emptyAsNull(codexHome),
           cd,
-          proxyPort,
           extraArgs,
           explicitOutputFile: emptyAsNull(outputFile),
           outputSchema: outputSchemaSource,
@@ -279,3 +312,26 @@ function parseBoolean(value: string): boolean {
 }
 
 main();
+
+async function resolveCodexHome(
+  inputCodexHome: string | null
+): Promise<string> {
+  if (inputCodexHome != null) {
+    return expandTilde(inputCodexHome);
+  }
+  const envHome = emptyAsNull(process.env.CODEX_HOME ?? "");
+  if (envHome != null) {
+    return envHome;
+  }
+  return path.join(os.homedir(), ".codex");
+}
+
+function expandTilde(p: string): string {
+  if (p === "~") {
+    return os.homedir();
+  }
+  if (p.startsWith("~/") || p.startsWith("~\\")) {
+    return path.join(os.homedir(), p.slice(2));
+  }
+  return p;
+}
