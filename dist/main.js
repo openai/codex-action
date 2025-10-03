@@ -27397,6 +27397,18 @@ async function ensureActorHasWriteAccess(options = {}) {
     core2.info(`Actor '${actor}' is a bot account; skipping explicit permission check.`);
     return { status: "approved", actor };
   }
+  const allowUsersSpec = (options.allowUsers ?? "").trim();
+  if (allowUsersSpec.length > 0) {
+    if (allowUsersSpec === "*") {
+      core2.info("allow-users='*' specified; allowing all users to proceed.");
+      return { status: "approved", actor };
+    }
+    const allowed = new Set(allowUsersSpec.split(",").map((s) => s.trim().toLowerCase()).filter((s) => s.length > 0));
+    if (allowed.has(actor.toLowerCase())) {
+      core2.info(`Actor '${actor}' is explicitly allowed via allow-users.`);
+      return { status: "approved", actor };
+    }
+  }
   const token = options.token ?? getTokenFromEnv();
   if (!token) {
     return {
@@ -27653,9 +27665,14 @@ async function main() {
     "Allow GitHub App and bot actors to bypass the write-access check (default: true).",
     parseBoolean,
     true
-  ).action(async ({ allowBots }) => {
+  ).option(
+    "--allow-users <users>",
+    "Comma-separated list of GitHub usernames who can run this action, or '*' to allow all users.",
+    ""
+  ).action(async ({ allowBots, allowUsers }) => {
     const result = await ensureActorHasWriteAccess({
-      allowBotActors: allowBots
+      allowBotActors: allowBots,
+      allowUsers
     });
     switch (result.status) {
       case "approved": {

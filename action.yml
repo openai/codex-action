@@ -81,10 +81,10 @@ inputs:
     description: "If `safety-strategy` is set to `unprivileged-user`, this specifies the UNIX username to run Codex as."
     required: false
     default: ""
-  require-repo-write:
-    description: "Whether to require the triggering actor to have write access to the repository before running."
+  allow-users:
+    description: "Comma-separated list of GitHub usernames who can run this action, or '*' to allow all users. Note users who have write access to the GitHub repo have access by default and do not need to be listed here."
     required: false
-    default: "true"
+    default: ""
   allow-bots:
     description: "Allow runs triggered by GitHub Apps/bot accounts to bypass the write-access check."
     required: false
@@ -112,13 +112,13 @@ runs:
         node-version: "20"
 
     - name: Check repository write access
-      if: ${{ inputs['require-repo-write'] == 'true' }}
       env:
-        ALLOW_BOTS: ${{ inputs['allow-bots'] }}
         GITHUB_TOKEN: ${{ github.token }}
       shell: bash
       run: |
-        node "${{ github.action_path }}/dist/main.js" check-write-access --allow-bots "$ALLOW_BOTS"
+        node "${{ github.action_path }}/dist/main.js" check-write-access \
+          --allow-bots "${{ inputs['allow-bots'] }}" \
+          --allow-users "${{ inputs['allow-users'] }}"
 
     - name: Install Codex CLI
       shell: bash
