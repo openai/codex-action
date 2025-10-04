@@ -30,7 +30,7 @@ inputs:
   codex-version:
     description: "Version of `@openai/codex` to install."
     required: false
-    default: "0.43.0-alpha.17"
+    default: "0.44.0"
   codex-args:
     description: "Additional args to pass through to `codex exec`. If this value starts with `[`, it will be parsed as a JSON array; otherwise, it will be parsed as a shell-like string."
     required: false
