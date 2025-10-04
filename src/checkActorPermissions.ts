@@ -23,6 +23,11 @@ type EnsureWriteAccessOptions = {
    * same checks as human users.
    */
   allowBotActors?: boolean;
+  /**
+   * Comma-separated list of allowed GitHub usernames or '*' to allow all users.
+   * Case-insensitive; empty string or undefined disables this override.
+   */
+  allowUsers?: string;
 };
 
 /**
@@ -66,6 +71,27 @@ export async function ensureActorHasWriteAccess(
   if (allowBotActors && actor.endsWith("[bot]")) {
     core.info(`Actor '${actor}' is a bot account; skipping explicit permission check.`);
     return { status: "approved", actor };
+  }
+
+  // Allow-list override: if allowUsers is '*' allow all users. If it is a
+  // comma-separated list, allow listed users (case-insensitive) without checking
+  // collaborator permissions.
+  const allowUsersSpec = (options.allowUsers ?? "").trim();
+  if (allowUsersSpec.length > 0) {
+    if (allowUsersSpec === "*") {
+      core.info("allow-users='*' specified; allowing all users to proceed.");
+      return { status: "approved", actor };
+    }
+    const allowed = new Set(
+      allowUsersSpec
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter((s) => s.length > 0),
+    );
+    if (allowed.has(actor.toLowerCase())) {
+      core.info(`Actor '${actor}' is explicitly allowed via allow-users.`);
+      return { status: "approved", actor };
+    }
   }
 
   const token = options.token ?? getTokenFromEnv();

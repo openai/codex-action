@@ -229,9 +229,15 @@ export async function main() {
       parseBoolean,
       true
     )
-    .action(async ({ allowBots }: { allowBots: boolean }) => {
+    .option(
+      "--allow-users <users>",
+      "Comma-separated list of GitHub usernames who can run this action, or '*' to allow all users.",
+      ""
+    )
+    .action(async ({ allowBots, allowUsers }: { allowBots: boolean; allowUsers: string }) => {
       const result = await ensureActorHasWriteAccess({
         allowBotActors: allowBots,
+        allowUsers,
       });
       switch (result.status) {
         case "approved": {
