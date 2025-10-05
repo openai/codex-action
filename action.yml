@@ -184,6 +184,11 @@ runs:
           exit 1
         fi
 
+        if [ "${RUNNER_OS}" != "Windows" ]; then
+          chmod 444 "$server_info_file"
+          sudo chown root "$server_info_file"
+        fi
+
     # This step has an output named `port`.
     - name: Read server info
       id: read_server_info
