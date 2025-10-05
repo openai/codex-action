@@ -141,21 +141,38 @@ runs:
         server_info_file="${{ steps.resolve_home.outputs.codex-home }}/${{ github.run_id }}.json"
         echo "server_info_file=$server_info_file" >> "$GITHUB_OUTPUT"
 
-    - name: Start Responses API proxy
+    - name: Check Responses API proxy status
       id: start_proxy
       if: ${{ inputs['openai-api-key'] != '' }}
-      env:
-        OPENAI_API_KEY: ${{ inputs['openai-api-key'] }}
       shell: bash
       run: |
         server_info_file="${{ steps.derive_server_info.outputs.server_info_file }}"
         if [ -s "$server_info_file" ]; then
           echo "Responses API proxy already appears to be running (found $server_info_file)."
-          exit 0
+          echo "server_info_file_exists=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "server_info_file_exists=false" >> "$GITHUB_OUTPUT"
         fi
+
+    # This is its own step to minimize the runtime logic that has access to the
+    # API key. Note we use `env -u OPENAI_API_KEY` to ensure extra copies of the
+    # key do not end up in the memory of the `codex-responses-api-proxy` process
+    # where environment variables are stored.
+    - name: Start Responses API proxy
+      if: ${{ inputs['openai-api-key'] != '' && steps.start_proxy.outputs.server_info_file_exists == 'false' }}
+      env:
+        OPENAI_API_KEY: ${{ inputs['openai-api-key'] }}
+      shell: bash
+      run: |
         (
-          printenv OPENAI_API_KEY | codex-responses-api-proxy --http-shutdown --server-info "$server_info_file"
+          printenv OPENAI_API_KEY | env -u OPENAI_API_KEY codex-responses-api-proxy --http-shutdown --server-info "${{ steps.derive_server_info.outputs.server_info_file }}"
         ) &
+
+    - name: Wait for Responses API proxy
+      if: ${{ inputs['openai-api-key'] != '' && steps.start_proxy.outputs.server_info_file_exists == 'false' }}
+      shell: bash
+      run: |
+        server_info_file="${{ steps.derive_server_info.outputs.server_info_file }}"
         for _ in {1..10}; do
           if [ -s "$server_info_file" ]; then
             break
