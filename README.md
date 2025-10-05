@@ -1,33 +1,92 @@
-# Codex Exec GitHub Action
+# Codex GitHub Action
 
-Run [`codex exec`](https://github.com/openai/codex#codex-exec) directly from a GitHub Actions workflow while keeping tight control over the privileges available to Codex. This action handles installing the Codex CLI, starting the required proxy to the OpenAI Responses API, and cleaning up after execution so you can focus on the prompt you want to run.
+Run [Codex](https://github.com/openai/codex#codex-exec) from a GitHub Actions workflow while keeping tight control over the privileges available to Codex. This action handles installing the Codex CLI and configuring it with a secure proxy to the [Responses API](https://platform.openai.com/docs/api-reference/responses).
 
-## Quick Start
+Users must provide their `OPENAI_API_KEY` as a [GitHub Actions secret](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets) to use this action.
+
+## Example: Create Your Own Pull Request Bot
+
+While Codex cloud offers a [powerful code review tool](https://developers.openai.com/codex/cloud/code-review) that you can use today, here is an example of how you can build your own code review workflow with `openai/codex-action` if you want to have more control over the experience.
+
+In the following example, we define a workflow that is triggered whenever a user creates a pull request that:
+
+- Creates a shallow clone of the repo.
+- Ensures the `base` and `head` refs for the PR are available locally.
+- Runs Codex with a `prompt` that includes the details specific to the PR.
+- Takes the output from Codex and posts it as a comment on the PR.
+
+See [`security.md`](./docs/security.md) for tips on using `openai/codex-action` securely.
 
 ```yaml
-name: Run Codex Exec
+name: Perform a code review when a pull request is created.
 on:
-  workflow_dispatch:
-    inputs:
-      prompt:
-        description: Prompt to send to Codex
-        required: true
+  pull_request:
+    types: [opened]
 
 jobs:
   codex:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      final_message: ${{ steps.run_codex.outputs.final-message }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Explicitly check out the PR's merge commit.
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+
+      - name: Pre-fetch base and head refs for the PR
+        run: |
+          git fetch --no-tags origin \
+            ${{ github.event.pull_request.base.ref }} \
+            +refs/pull/${{ github.event.pull_request.number }}/head
+
+      # If you want Codex to build and run code, install any dependencies that
+      # need to be downloaded before the "Run Codex" step because Codex's
+      # default sandbox disables network access.
 
       - name: Run Codex
+        id: run_codex
         uses: openai/codex-action@main
-        id: codex
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-          prompt: ${{ github.event.inputs.prompt }}
-```
+          prompt: |
+            This is PR #${{ github.event.pull_request.number }} for ${{ github.repository }}.
+            Base SHA: ${{ github.event.pull_request.base.sha }}
+            Head SHA: ${{ github.event.pull_request.head.sha }}
 
-Provide either `prompt` or `prompt-file`; the other may be left empty. The action streams Codex output to the job logs and exposes the final message as an output named `final-message` for downstream steps.
+            Review ONLY the changes introduced by the PR.
+            Suggest any improvements, potential bugs, or issues.
+            Be concise and specific in your feedback.
+
+            Pull request title and body:
+            ----
+            ${{ github.event.pull_request.title }}
+            ${{ github.event.pull_request.body }}
+
+  post_feedback:
+    runs-on: ubuntu-latest
+    needs: codex
+    if: needs.codex.outputs.final_message != ''
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Report Codex feedback
+        uses: actions/github-script@v7
+        env:
+          CODEX_FINAL_MESSAGE: ${{ needs.codex.outputs.final_message }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: process.env.CODEX_FINAL_MESSAGE,
+            });
+```
 
 ## Inputs
 
@@ -70,16 +129,15 @@ Provide either `prompt` or `prompt-file`; the other may be left empty. The actio
 | --------------- | --------------------------------------- |
 | `final-message` | Final message returned by `codex exec`. |
 
-You can reference the output from later steps:
+As we saw in the example above, we took the `final-message` output of the `run_codex` step and made it an output of the `codex` job in the workflow:
 
 ```yaml
-# steps.codex refers to the `id: codex` step in the above example.
-- name: Capture Codex result
-  run: |
-    echo "New Codex said: ${{ steps.codex.outputs.final-message }}"
+jobs:
+  codex:
+    # ...
+    outputs:
+      final_message: ${{ steps.run_codex.outputs.final-message }}
 ```
-
-Replace `steps.codex` with the `id` assigned to your action step.
 
 ## Additional tips
 
