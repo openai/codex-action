@@ -3,7 +3,7 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import path from "path";
 import os from "os";
 import { setOutput } from "@actions/core";
-import { which } from "./which";
+import { checkOutput } from "./checkOutput";
 
 export type PromptSource =
   | {
@@ -69,18 +69,19 @@ export async function runCodexExec({
       break;
   }
 
-  const needsSharedTempDir = safetyStrategy === "unprivileged-user";
+  const runAsUser: string | null =
+    safetyStrategy === "unprivileged-user" ? codexUser : null;
 
   let outputFile: OutputFile;
   if (explicitOutputFile != null) {
     outputFile = { type: "explicit", file: explicitOutputFile };
   } else {
-    outputFile = await createTempOutputFile({ shared: needsSharedTempDir });
+    outputFile = await createTempOutputFile({ runAsUser });
   }
 
   const resolvedOutputSchema = await resolveOutputSchema(
     outputSchema,
-    needsSharedTempDir
+    runAsUser
   );
   const sandboxMode = await determineSandboxMode({
     safetyStrategy,
@@ -106,12 +107,11 @@ export async function runCodexExec({
     // We are currently running as a privileged user, but `codexUser` will run
     // with a different $PATH variable, so we need to find the full path to
     // `codex`.
-    const whichResult = await which("codex");
-    if (whichResult == null) {
+    pathToCodex = (await checkOutput(["which", "codex"])).trim();
+    if (!pathToCodex) {
       throw new Error("could not find 'codex' in PATH");
     }
 
-    pathToCodex = whichResult;
     command.push("sudo", "-u", codexUser, "--");
   }
 
@@ -169,7 +169,7 @@ export async function runCodexExec({
         }
 
         try {
-          await finalizeExecution(outputFile);
+          await finalizeExecution(outputFile, runAsUser);
           resolve(undefined);
         } catch (err) {
           reject(err);
@@ -181,12 +181,27 @@ export async function runCodexExec({
   }
 }
 
-async function finalizeExecution(outputFile: OutputFile): Promise<void> {
+async function finalizeExecution(
+  outputFile: OutputFile,
+  runAsUser: string | null
+): Promise<void> {
   try {
-    const lastMessage = await readFile(outputFile.file, "utf8");
+    let lastMessage: string;
+    if (runAsUser == null) {
+      lastMessage = await readFile(outputFile.file, "utf8");
+      setOutput("final-message", lastMessage);
+    } else {
+      lastMessage = await checkOutput([
+        "sudo",
+        "-u",
+        runAsUser,
+        "cat",
+        outputFile.file,
+      ]);
+    }
     setOutput("final-message", lastMessage);
   } finally {
-    await cleanupTempOutput(outputFile);
+    await cleanupTempOutput(outputFile, runAsUser);
   }
 }
 
@@ -212,23 +227,30 @@ type ResolvedOutputSchema =
     };
 
 async function createTempOutputFile({
-  shared,
+  runAsUser,
 }: {
-  shared: boolean;
+  runAsUser: string | null;
 }): Promise<OutputFile> {
-  const dir = await createTempDir("codex-exec-", shared);
+  const dir = await createTempDir("codex-exec-", runAsUser);
   return { type: "temp", file: path.join(dir, "output.md") };
 }
 
-async function cleanupTempOutput(outputFile: OutputFile): Promise<void> {
+async function cleanupTempOutput(
+  outputFile: OutputFile,
+  runAsUser: string | null
+): Promise<void> {
   switch (outputFile.type) {
     case "explicit":
       // Do not delete user-specified output files.
       return;
     case "temp": {
       const { file } = outputFile;
-      const dir = path.dirname(file);
-      await rm(dir, { recursive: true, force: true });
+      if (runAsUser == null) {
+        const dir = path.dirname(file);
+        await rm(dir, { recursive: true, force: true });
+      } else {
+        await checkOutput(["sudo", "rm", "-rf", path.dirname(file)]);
+      }
       break;
     }
   }
@@ -236,7 +258,7 @@ async function cleanupTempOutput(outputFile: OutputFile): Promise<void> {
 
 async function resolveOutputSchema(
   schema: OutputSchemaSource | null,
-  sharedTempDir: boolean
+  runAsUser: string | null
 ): Promise<ResolvedOutputSchema | null> {
   if (schema == null) {
     return null;
@@ -246,7 +268,7 @@ async function resolveOutputSchema(
     case "file":
       return { type: "explicit", file: schema.path };
     case "inline": {
-      const dir = await createTempDir("codex-output-schema-", sharedTempDir);
+      const dir = await createTempDir("codex-output-schema-", runAsUser);
       const file = path.join(dir, "schema.json");
       await writeFile(file, schema.content);
       return { type: "temp", file, dir };
@@ -270,12 +292,25 @@ async function cleanupOutputSchema(
   }
 }
 
-async function createTempDir(prefix: string, shared: boolean): Promise<string> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), prefix));
-  if (shared) {
-    await chmod(dir, 0o755);
+async function createTempDir(
+  prefix: string,
+  runAsUser: string | null
+): Promise<string> {
+  if (runAsUser == null) {
+    return await mkdtemp(path.join(os.tmpdir(), prefix));
+  } else {
+    return (
+      await checkOutput([
+        "sudo",
+        "-u",
+        runAsUser,
+        "mktemp",
+        "-d",
+        "-t",
+        `${prefix}.XXXXXX`,
+      ])
+    ).trim();
   }
-  return dir;
 }
 
 async function determineSandboxMode({
