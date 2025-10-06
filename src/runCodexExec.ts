@@ -2,6 +2,7 @@ import { spawn } from "child_process";
 import { mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import path from "path";
 import { setOutput } from "@actions/core";
+import { which } from "./which";
 
 export type PromptSource =
   | {
@@ -82,6 +83,7 @@ export async function runCodexExec({
 
   const command: Array<string> = [];
 
+  let pathToCodex = "codex";
   if (safetyStrategy === "unprivileged-user") {
     if (codexUser == null) {
       throw new Error(
@@ -89,11 +91,26 @@ export async function runCodexExec({
       );
     }
 
+    if (process.platform === "win32") {
+      throw new Error(
+        "the 'unprivileged-user' safety strategy is not supported on Windows."
+      );
+    }
+
+    // We are currently running as a privileged user, but `codexUser` will run
+    // with a different $PATH variable, so we need to find the full path to
+    // `codex`.
+    const whichResult = await which("codex");
+    if (whichResult == null) {
+      throw new Error("could not find 'codex' in PATH");
+    }
+
+    pathToCodex = whichResult;
     command.push("sudo", "-u", codexUser, "--");
   }
 
   command.push(
-    "codex",
+    pathToCodex,
     "exec",
     "--skip-git-repo-check",
     "--cd",
