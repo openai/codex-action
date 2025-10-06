@@ -1,0 +1,40 @@
+name: "Example: Run Codex as an unprivileged user"
+on:
+  workflow_dispatch:
+
+jobs:
+  run-codex-with-unprivileged-user:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create unprivileged user
+        run: |
+          sudo adduser --system --home /home/guest --shell /bin/bash --group guest
+          # Ensure the default runner account can collaborate with the guest user.
+          sudo usermod -a -G guest runner
+
+          # Allow the guest user to traverse runner-owned directories.
+          # In particular, actions/checkout@v5 checks out code under
+          # /home/runner/work, but /home/runner has permissions 750.
+          sudo usermod -a -G runner guest
+
+      - uses: actions/checkout@v5
+
+      - name: Change ownership
+        run: |
+          # Change the group ownership of the checked-out files to the `guest` group.
+          sudo chown -R runner:guest "$GITHUB_WORKSPACE"
+
+          # Extend user permissions to the group.
+          sudo chmod -R g+rwX "$GITHUB_WORKSPACE"
+
+          # Set the setgid bit so new directories stay in the shared group.
+          sudo find "$GITHUB_WORKSPACE" -type d -exec chmod g+s {} +
+
+      - name: Run Codex as unprivileged user
+        uses: openai/codex-action@main
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          safety-strategy: unprivileged-user
+          codex-user: guest
+          prompt: |
+            Report $USER, $HOME, and whoami.

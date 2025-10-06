@@ -132,7 +132,11 @@ runs:
       id: resolve_home
       shell: bash
       run: |
-        node "${{ github.action_path }}/dist/main.js" resolve-codex-home "${{ inputs['codex-home'] }}"
+        node "${{ github.action_path }}/dist/main.js" resolve-codex-home \
+          --codex-home-override "${{ inputs['codex-home'] }}" \
+          --safety-strategy "${{ inputs['safety-strategy'] }}" \
+          --codex-user "${{ inputs['codex-user'] }}" \
+          --github-run-id "${{ github.run_id }}"
 
     - name: Determine server info path
       id: derive_server_info
@@ -185,7 +189,7 @@ runs:
         fi
 
         if [ "${RUNNER_OS}" != "Windows" ]; then
-          chmod 444 "$server_info_file"
+          sudo chmod 444 "$server_info_file"
           sudo chown root "$server_info_file"
         fi
 
@@ -202,7 +206,8 @@ runs:
       run: |
         node "${{ github.action_path }}/dist/main.js" write-proxy-config \
           --codex-home "${{ steps.resolve_home.outputs.codex-home }}" \
-          --port "${{ steps.read_server_info.outputs.port }}"
+          --port "${{ steps.read_server_info.outputs.port }}" \
+          --safety-strategy "${{ inputs['safety-strategy'] }}"
 
     - name: Drop sudo privilege, if appropriate
       if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' }}
