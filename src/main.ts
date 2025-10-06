@@ -51,18 +51,21 @@ export async function main() {
       "--codex-user <user>",
       "Codex user to consider when safety strategy is 'unprivileged-user'"
     )
+    .requiredOption("--github-run-id <id>", "GitHub run ID")
     .action(
       async (options: {
         codexHomeOverride: string;
         safetyStrategy: string;
         codexUser: string;
+        githubRunId: string;
       }) => {
         const safetyStrategy = toSafetyStrategy(options.safetyStrategy);
         const codexUser = emptyAsNull(options.codexUser);
         const resolved = await resolveCodexHome(
           emptyAsNull(options.codexHomeOverride),
           safetyStrategy,
-          codexUser
+          codexUser,
+          options.githubRunId
         );
         // Ensure directory exists for downstream steps that will write files here.
         await fs.mkdir(resolved, { recursive: true });
@@ -82,9 +85,20 @@ export async function main() {
     )
     .requiredOption("--codex-home <DIRECTORY>", "Path to Codex home directory")
     .requiredOption("--port <port>", "Proxy server port", parseIntStrict)
-    .action(async (options: { codexHome: string; port: number }) => {
-      await writeProxyConfig(options.codexHome, options.port);
-    });
+    .requiredOption(
+      "--safety-strategy <strategy>",
+      "Safety strategy to use. One of 'drop-sudo', 'read-only', 'unprivileged-user', or 'unsafe'."
+    )
+    .action(
+      async (options: {
+        codexHome: string;
+        port: number;
+        safetyStrategy: string;
+      }) => {
+        const safetyStrategy = toSafetyStrategy(options.safetyStrategy);
+        await writeProxyConfig(options.codexHome, options.port, safetyStrategy);
+      }
+    );
 
   program
     .command("drop-sudo")
@@ -352,7 +366,8 @@ main();
 async function resolveCodexHome(
   inputCodexHome: string | null,
   safetyStrategy: SafetyStrategy,
-  codexUser: string | null
+  codexUser: string | null,
+  githubRunId: string
 ): Promise<string> {
   if (inputCodexHome != null) {
     return expandTilde(inputCodexHome);
@@ -368,7 +383,10 @@ async function resolveCodexHome(
       );
     }
 
-    return await deriveSharedCodexHomeForUser(codexUser);
+    return await deriveSharedCodexHomeForUnprivilegedUser(
+      codexUser,
+      githubRunId
+    );
   }
   return path.join(os.homedir(), ".codex");
 }
@@ -384,14 +402,43 @@ async function ensureDirIsWorldReadable(dir: string): Promise<void> {
   }
 }
 
-async function deriveSharedCodexHomeForUser(user: string): Promise<string> {
+async function deriveSharedCodexHomeForUnprivilegedUser(
+  user: string,
+  githubRunId: string
+): Promise<string> {
   const home = (
     await checkOutput(["sudo", "-u", user, "--", "printenv", "HOME"])
   ).trim();
   if (!home) {
     throw new Error(`Could not determine home directory for user '${user}'.`);
   }
-  return path.join(home, ".codex");
+  const codexHome = path.join(home, ".codex");
+  try {
+    const stat = await fs.stat(codexHome);
+    if (stat.isDirectory()) {
+      // Directory already exists and may contain a config.toml created by the
+      // user (or a previous invocation of codex-action), so assume it's
+      // correctly permissioned.
+      return codexHome;
+    }
+  } catch {
+    // Ignore stat errors and try to create the directory.
+  }
+
+  // We must use sudo for the following file system operations because we
+  // are writing to the home directory of a different user.
+  await checkOutput(["sudo", "mkdir", codexHome]);
+  await checkOutput(["sudo", "chown", `${user}`, codexHome]);
+  await checkOutput(["sudo", "chmod", "755", codexHome]);
+
+  // codex-responses-api-proxy will need to write the server info file.
+  const serverInfoFile = path.join(codexHome, `${githubRunId}.json`);
+  await checkOutput(["sudo", "touch", serverInfoFile]);
+  // Make the file world-writable for the moment, but this will be locked down
+  // to read-only by root before the action completes.
+  await checkOutput(["sudo", "chmod", "666", serverInfoFile]);
+
+  return codexHome;
 }
 
 function expandTilde(p: string): string {

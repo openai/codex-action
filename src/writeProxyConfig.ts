@@ -1,11 +1,15 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import * as os from "node:os";
+import { SafetyStrategy } from "./runCodexExec";
+import { checkOutput } from "./checkOutput";
 
 const MODEL_PROVIDER = "openai-proxy";
 
 export async function writeProxyConfig(
   codexHome: string,
-  port: number
+  port: number,
+  safetyStrategy: SafetyStrategy
 ): Promise<void> {
   const configPath = path.join(codexHome, "config.toml");
 
@@ -33,6 +37,19 @@ wire_api = "responses"
   // Prepend model_provider at the very top.
   let output = `${header}${existing}${table}`;
 
-  await fs.mkdir(codexHome, { recursive: true });
-  await fs.writeFile(configPath, output, "utf8");
+  if (safetyStrategy === "unprivileged-user") {
+    // We know we have already created the CODEX_HOME directory, but it is owned
+    // by another user, so we need to use sudo to write the file.
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-config"));
+    try {
+      const tempConfigPath = path.join(tempDir, "config.toml");
+      await fs.writeFile(tempConfigPath, output, "utf8");
+      await checkOutput(["sudo", "mv", tempConfigPath, configPath]);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  } else {
+    await fs.mkdir(codexHome, { recursive: true });
+    await fs.writeFile(configPath, output, "utf8");
+  }
 }
