@@ -31,7 +31,7 @@ jobs:
           sudo find "$GITHUB_WORKSPACE" -type d -exec chmod g+s {} +
 
       - name: Run Codex as unprivileged user
-        uses: openai/codex-action@main
+        uses: openai/codex-action@v1
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           safety-strategy: unprivileged-user
