@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
-import { mkdtemp, readFile, rm, writeFile } from "fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import path from "path";
+import os from "os";
 import { setOutput } from "@actions/core";
 import { which } from "./which";
 
@@ -68,14 +69,19 @@ export async function runCodexExec({
       break;
   }
 
+  const needsSharedTempDir = safetyStrategy === "unprivileged-user";
+
   let outputFile: OutputFile;
   if (explicitOutputFile != null) {
     outputFile = { type: "explicit", file: explicitOutputFile };
   } else {
-    outputFile = await createTempOutputFile();
+    outputFile = await createTempOutputFile({ shared: needsSharedTempDir });
   }
 
-  const resolvedOutputSchema = await resolveOutputSchema(outputSchema);
+  const resolvedOutputSchema = await resolveOutputSchema(
+    outputSchema,
+    needsSharedTempDir
+  );
   const sandboxMode = await determineSandboxMode({
     safetyStrategy,
     requestedSandbox: sandbox,
@@ -205,8 +211,12 @@ type ResolvedOutputSchema =
       dir: string;
     };
 
-async function createTempOutputFile(): Promise<OutputFile> {
-  const dir = await mkdtemp("codex-exec-");
+async function createTempOutputFile({
+  shared,
+}: {
+  shared: boolean;
+}): Promise<OutputFile> {
+  const dir = await createTempDir("codex-exec-", shared);
   return { type: "temp", file: path.join(dir, "output.md") };
 }
 
@@ -225,7 +235,8 @@ async function cleanupTempOutput(outputFile: OutputFile): Promise<void> {
 }
 
 async function resolveOutputSchema(
-  schema: OutputSchemaSource | null
+  schema: OutputSchemaSource | null,
+  sharedTempDir: boolean
 ): Promise<ResolvedOutputSchema | null> {
   if (schema == null) {
     return null;
@@ -235,7 +246,7 @@ async function resolveOutputSchema(
     case "file":
       return { type: "explicit", file: schema.path };
     case "inline": {
-      const dir = await mkdtemp("codex-output-schema-");
+      const dir = await createTempDir("codex-output-schema-", sharedTempDir);
       const file = path.join(dir, "schema.json");
       await writeFile(file, schema.content);
       return { type: "temp", file, dir };
@@ -257,6 +268,14 @@ async function cleanupOutputSchema(
       await rm(schema.dir, { recursive: true, force: true });
       return;
   }
+}
+
+async function createTempDir(prefix: string, shared: boolean): Promise<string> {
+  const dir = await mkdtemp(path.join(os.tmpdir(), prefix));
+  if (shared) {
+    await chmod(dir, 0o755);
+  }
+  return dir;
 }
 
 async function determineSandboxMode({
