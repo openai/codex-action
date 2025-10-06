@@ -21,7 +21,7 @@ jobs:
           - unsafe
     steps:
       - name: Run Codex (${{ matrix.safety-strategy }})
-        uses: openai/codex-action@main
+        uses: openai/codex-action@v1
         with:
           # An OpenAI API key often starts with `sk-proj-` and is followed
           # by random characters matching [A-Za-z-0-9_-].
