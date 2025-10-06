@@ -16,6 +16,7 @@ import { dropSudo } from "./dropSudo";
 import { ensureActorHasWriteAccess } from "./checkActorPermissions";
 import parseArgsStringToArgv from "string-argv";
 import { writeProxyConfig } from "./writeProxyConfig";
+import { checkOutput } from "./checkOutput";
 
 export async function main() {
   const program = new Command();
@@ -38,20 +39,41 @@ export async function main() {
     .description(
       "Resolve the Codex home directory with precedence: input, env, default (~/.codex)"
     )
-    .argument(
-      "[inputCodexHome]",
+    .requiredOption(
+      "--codex-home-override <DIRECTORY>",
       "Optional codex-home input value (may be empty)"
     )
-    .action(async (inputCodexHome?: string) => {
-      const resolved = await resolveCodexHome(
-        emptyAsNull(inputCodexHome ?? "")
-      );
-      // Ensure directory exists for downstream steps that will write files here.
-      await fs.mkdir(resolved, { recursive: true });
-      const { setOutput } = await import("@actions/core");
-      setOutput("codex-home", resolved);
-      console.log(`Resolved Codex home: ${resolved}`);
-    });
+    .requiredOption(
+      "--safety-strategy <strategy>",
+      "Safety strategy to take into account when picking defaults"
+    )
+    .requiredOption(
+      "--codex-user <user>",
+      "Codex user to consider when safety strategy is 'unprivileged-user'"
+    )
+    .action(
+      async (options: {
+        codexHomeOverride: string;
+        safetyStrategy: string;
+        codexUser: string;
+      }) => {
+        const safetyStrategy = toSafetyStrategy(options.safetyStrategy);
+        const codexUser = emptyAsNull(options.codexUser);
+        const resolved = await resolveCodexHome(
+          emptyAsNull(options.codexHomeOverride),
+          safetyStrategy,
+          codexUser
+        );
+        // Ensure directory exists for downstream steps that will write files here.
+        await fs.mkdir(resolved, { recursive: true });
+        if (safetyStrategy === "unprivileged-user") {
+          await ensureDirIsWorldReadable(resolved);
+        }
+        const { setOutput } = await import("@actions/core");
+        setOutput("codex-home", resolved);
+        console.log(`Resolved Codex home: ${resolved}`);
+      }
+    );
 
   program
     .command("write-proxy-config")
@@ -234,23 +256,31 @@ export async function main() {
       "Comma-separated list of GitHub usernames who can run this action, or '*' to allow all users.",
       ""
     )
-    .action(async ({ allowBots, allowUsers }: { allowBots: boolean; allowUsers: string }) => {
-      const result = await ensureActorHasWriteAccess({
-        allowBotActors: allowBots,
+    .action(
+      async ({
+        allowBots,
         allowUsers,
-      });
-      switch (result.status) {
-        case "approved": {
-          console.log(`Actor '${result.actor}' is permitted to continue.`);
-          break;
-        }
-        case "rejected": {
-          const message = `Actor '${result.actor}' is not permitted to run this action: ${result.reason}`;
-          console.error(message);
-          throw new Error(message);
+      }: {
+        allowBots: boolean;
+        allowUsers: string;
+      }) => {
+        const result = await ensureActorHasWriteAccess({
+          allowBotActors: allowBots,
+          allowUsers,
+        });
+        switch (result.status) {
+          case "approved": {
+            console.log(`Actor '${result.actor}' is permitted to continue.`);
+            break;
+          }
+          case "rejected": {
+            const message = `Actor '${result.actor}' is not permitted to run this action: ${result.reason}`;
+            console.error(message);
+            throw new Error(message);
+          }
         }
       }
-    });
+    );
 
   program.parse();
 }
@@ -320,7 +350,9 @@ function parseBoolean(value: string): boolean {
 main();
 
 async function resolveCodexHome(
-  inputCodexHome: string | null
+  inputCodexHome: string | null,
+  safetyStrategy: SafetyStrategy,
+  codexUser: string | null
 ): Promise<string> {
   if (inputCodexHome != null) {
     return expandTilde(inputCodexHome);
@@ -329,7 +361,37 @@ async function resolveCodexHome(
   if (envHome != null) {
     return envHome;
   }
+  if (safetyStrategy === "unprivileged-user") {
+    if (codexUser == null) {
+      throw new Error(
+        "codex-user input must be provided when using 'unprivileged-user' safety strategy and no codex-home is specified."
+      );
+    }
+
+    return await deriveSharedCodexHomeForUser(codexUser);
+  }
   return path.join(os.homedir(), ".codex");
+}
+
+async function ensureDirIsWorldReadable(dir: string): Promise<void> {
+  if (process.platform === "win32") {
+    return;
+  }
+  try {
+    await fs.chmod(dir, 0o755);
+  } catch {
+    // Best-effort: ignore chmod failures so the command still succeeds.
+  }
+}
+
+async function deriveSharedCodexHomeForUser(user: string): Promise<string> {
+  const home = (
+    await checkOutput(["sudo", "-u", user, "--", "printenv", "HOME"])
+  ).trim();
+  if (!home) {
+    throw new Error(`Could not determine home directory for user '${user}'.`);
+  }
+  return path.join(home, ".codex");
 }
 
 function expandTilde(p: string): string {

@@ -132,7 +132,10 @@ runs:
       id: resolve_home
       shell: bash
       run: |
-        node "${{ github.action_path }}/dist/main.js" resolve-codex-home "${{ inputs['codex-home'] }}"
+        node "${{ github.action_path }}/dist/main.js" resolve-codex-home \
+          --codex-home-override "${{ inputs['codex-home'] }}" \
+          --safety-strategy "${{ inputs['safety-strategy'] }}" \
+          --codex-user "${{ inputs['codex-user'] }}"
 
     - name: Determine server info path
       id: derive_server_info

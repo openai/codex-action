@@ -3,7 +3,7 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import path from "path";
 import os from "os";
 import { setOutput } from "@actions/core";
-import { which } from "./which";
+import { checkOutput } from "./checkOutput";
 
 export type PromptSource =
   | {
@@ -106,12 +106,11 @@ export async function runCodexExec({
     // We are currently running as a privileged user, but `codexUser` will run
     // with a different $PATH variable, so we need to find the full path to
     // `codex`.
-    const whichResult = await which("codex");
-    if (whichResult == null) {
+    pathToCodex = (await checkOutput(["which", "codex"])).trim();
+    if (!pathToCodex) {
       throw new Error("could not find 'codex' in PATH");
     }
 
-    pathToCodex = whichResult;
     command.push("sudo", "-u", codexUser, "--");
   }
 
