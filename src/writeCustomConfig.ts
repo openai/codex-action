@@ -37,7 +37,7 @@ model_provider = "${MODEL_PROVIDER}"
 [model_providers.${MODEL_PROVIDER}]
 name = "Custom OpenAI-compatible API"
 base_url = "${baseUrl}"
-wire_api = "openai"
+wire_api = "chat"
 api_key = "${apiKey}"
 `;
 
