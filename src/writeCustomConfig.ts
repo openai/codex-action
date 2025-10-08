@@ -25,6 +25,10 @@ export async function writeCustomConfig(
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY environment variable is required for custom endpoints");
   }
+  
+  console.log(`Configuring custom endpoint:`);
+  console.log(`  Base URL: ${baseUrl}`);
+  console.log(`  API Key: ${apiKey.substring(0, 8)}...${apiKey.substring(apiKey.length - 4)} (${apiKey.length} chars)`);
 
   const header = `# Added by codex-action.
 model_provider = "${MODEL_PROVIDER}"
@@ -59,4 +63,6 @@ api_key = "${apiKey}"
     await fs.mkdir(codexHome, { recursive: true });
     await fs.writeFile(configPath, output, "utf8");
   }
+  
+  console.log(`Custom endpoint configuration written to ${configPath}`);
 }
