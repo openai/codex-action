@@ -1,6 +1,6 @@
 {
   "name": "@adorsys/codex-action",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "GitHub Action to run codex exec with OpenAI-compatible API endpoints",
   "private": true,
   "scripts": {
