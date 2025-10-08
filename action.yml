@@ -227,7 +227,8 @@ runs:
         node "${{ github.action_path }}/dist/main.js" write-custom-config \
           --codex-home "${{ steps.resolve_home.outputs.codex-home }}" \
           --base-url "${{ inputs['custom-api-base-url'] }}" \
-          --safety-strategy "${{ inputs['safety-strategy'] }}"
+          --safety-strategy "${{ inputs['safety-strategy'] }}" \
+          --model "${{ inputs['custom-model'] }}"
 
     - name: Drop sudo privilege, if appropriate
       if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' && inputs['custom-api-base-url'] == '' }}

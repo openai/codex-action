@@ -9,7 +9,8 @@ const MODEL_PROVIDER = "custom-openai";
 export async function writeCustomConfig(
   codexHome: string,
   baseUrl: string,
-  safetyStrategy: SafetyStrategy
+  safetyStrategy: SafetyStrategy,
+  model?: string
 ): Promise<void> {
   const configPath = path.join(codexHome, "config.toml");
 
@@ -43,6 +44,7 @@ name = "Custom OpenAI-compatible API"
 base_url = "${baseUrl}"
 env_key = "OPENAI_API_KEY"
 wire_api = "chat"
+${model ? `model = "${model}"` : ''}
 `;
 
   // Prepend model_provider at the very top.

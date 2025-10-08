@@ -121,17 +121,20 @@ export async function main() {
       "--safety-strategy <strategy>",
       "Safety strategy to use. One of 'drop-sudo', 'read-only', 'unprivileged-user', or 'unsafe'."
     )
+    .option("--model <model>", "Model name to use with custom API endpoint")
     .action(
       async (options: {
         codexHome: string;
         baseUrl: string;
         safetyStrategy: string;
+        model?: string;
       }) => {
         const safetyStrategy = toSafetyStrategy(options.safetyStrategy);
         await writeCustomConfig(
           options.codexHome,
           options.baseUrl,
-          safetyStrategy
+          safetyStrategy,
+          options.model
         );
       }
     );
