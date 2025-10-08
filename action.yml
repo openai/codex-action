@@ -51,10 +51,6 @@ inputs:
     description: "File path to the schema that should be passed to `codex exec --output-schema`."
     required: false
     default: ""
-  model:
-    description: "Model the agent should use."
-    required: false
-    default: ""
   codex-home:
     description: "Directory to use as the Codex home directory. If empty, the default Codex home directory will be used."
     required: false
