@@ -96,6 +96,7 @@ jobs:
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
 | `openai-api-key`       | Secret used to start the Responses API proxy. Required when starting the proxy (key-only or key+prompt). Store it in `secrets`.         | `""`        |
 | `custom-api-base-url`  | Custom base URL for OpenAPI-compatible API endpoint (e.g., `https://ai.example.com/api`). See [Custom Endpoints](./docs/custom-openapi-endpoints.md). | `""`        |
+| `custom-model`         | Model name to use with custom API endpoint (e.g., `kimi-k2-instruct`). Only used when `custom-api-base-url` is provided.              | `""`        |
 | `prompt`               | Inline prompt text. Provide this or `prompt-file`.                                                                                      | `""`        |
 | `prompt-file`          | Path (relative to the repository root) of a file that contains the prompt. Provide this or `prompt`.                                    | `""`        |
 | `output-file`          | File where the final Codex message is written. Leave empty to skip writing a file.                                                      | `""`        |

@@ -22,6 +22,10 @@ inputs:
     description: "Custom base URL for OpenAPI-compatible API endpoint (e.g., https://ai.example.com/api). If provided, the action will use this instead of the OpenAI proxy."
     required: false
     default: ""
+  custom-model:
+    description: "Model name to use with custom API endpoint (e.g., kimi-k2-instruct). Only used when custom-api-base-url is provided."
+    required: false
+    default: ""
   working-directory:
     description: "Working directory that Codex should use. Defaults to the repository root."
     required: false
@@ -265,7 +269,7 @@ runs:
         CODEX_ARGS: ${{ inputs['codex-args'] }}
         CODEX_OUTPUT_SCHEMA: ${{ inputs['output-schema'] }}
         CODEX_OUTPUT_SCHEMA_FILE: ${{ inputs['output-schema-file'] }}
-        CODEX_MODEL: ${{ inputs.model }}
+        CODEX_MODEL: ${{ inputs['custom-model'] || inputs.model }}
         CODEX_SAFETY_STRATEGY: ${{ inputs['safety-strategy'] }}
         CODEX_USER: ${{ inputs['codex-user'] }}
         FORCE_COLOR: 1

@@ -26,6 +26,7 @@ jobs:
         with:
           openai-api-key: ${{ secrets.CUSTOM_API_KEY }}
           custom-api-base-url: ${{ secrets.CUSTOM_API_BASE_URL }}
+          custom-model: ${{ secrets.CUSTOM_MODEL }}
           prompt: |
             Analyze the code changes in this repository and provide feedback.
             Focus on code quality, potential bugs, and improvements.
