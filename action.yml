@@ -129,6 +129,7 @@ runs:
       run: npm install -g "@openai/codex@${{ inputs['codex-version'] }}"
 
     - name: Install Codex Responses API proxy
+      if: ${{ inputs['custom-api-base-url'] == '' }}
       shell: bash
       run: npm install -g "@openai/codex-responses-api-proxy@${{ inputs['codex-version'] }}"
 
@@ -151,7 +152,7 @@ runs:
 
     - name: Check Responses API proxy status
       id: start_proxy
-      if: ${{ inputs['openai-api-key'] != '' }}
+      if: ${{ inputs['openai-api-key'] != '' && inputs['custom-api-base-url'] == '' }}
       shell: bash
       run: |
         server_info_file="${{ steps.derive_server_info.outputs.server_info_file }}"
@@ -167,7 +168,7 @@ runs:
     # key do not end up in the memory of the `codex-responses-api-proxy` process
     # where environment variables are stored.
     - name: Start Responses API proxy
-      if: ${{ inputs['openai-api-key'] != '' && steps.start_proxy.outputs.server_info_file_exists == 'false' }}
+      if: ${{ inputs['openai-api-key'] != '' && inputs['custom-api-base-url'] == '' && steps.start_proxy.outputs.server_info_file_exists == 'false' }}
       env:
         OPENAI_API_KEY: ${{ inputs['openai-api-key'] }}
       shell: bash
@@ -177,7 +178,7 @@ runs:
         ) &
 
     - name: Wait for Responses API proxy
-      if: ${{ inputs['openai-api-key'] != '' && steps.start_proxy.outputs.server_info_file_exists == 'false' }}
+      if: ${{ inputs['openai-api-key'] != '' && inputs['custom-api-base-url'] == '' && steps.start_proxy.outputs.server_info_file_exists == 'false' }}
       shell: bash
       run: |
         server_info_file="${{ steps.derive_server_info.outputs.server_info_file }}"
@@ -200,29 +201,32 @@ runs:
     # This step has an output named `port`.
     - name: Read server info
       id: read_server_info
-      if: ${{ inputs['openai-api-key'] != '' || inputs.prompt != '' || inputs['prompt-file'] != '' }}
+      if: ${{ inputs['openai-api-key'] != '' && inputs['custom-api-base-url'] == '' }}
       shell: bash
       run: node "${{ github.action_path }}/dist/main.js" read-server-info "${{ steps.derive_server_info.outputs.server_info_file }}"
 
     - name: Write Codex proxy config
-      if: ${{ inputs['openai-api-key'] != '' }}
+      if: ${{ inputs['openai-api-key'] != '' && inputs['custom-api-base-url'] == '' }}
       shell: bash
       run: |
-        if [ -n "${{ inputs['custom-api-base-url'] }}" ]; then
-          node "${{ github.action_path }}/dist/main.js" write-proxy-config \
-            --codex-home "${{ steps.resolve_home.outputs.codex-home }}" \
-            --port "${{ steps.read_server_info.outputs.port }}" \
-            --safety-strategy "${{ inputs['safety-strategy'] }}" \
-            --custom-base-url "${{ inputs['custom-api-base-url'] }}"
-        else
-          node "${{ github.action_path }}/dist/main.js" write-proxy-config \
-            --codex-home "${{ steps.resolve_home.outputs.codex-home }}" \
-            --port "${{ steps.read_server_info.outputs.port }}" \
-            --safety-strategy "${{ inputs['safety-strategy'] }}"
-        fi
+        node "${{ github.action_path }}/dist/main.js" write-proxy-config \
+          --codex-home "${{ steps.resolve_home.outputs.codex-home }}" \
+          --port "${{ steps.read_server_info.outputs.port }}" \
+          --safety-strategy "${{ inputs['safety-strategy'] }}"
+
+    - name: Write Codex custom endpoint config
+      if: ${{ inputs['openai-api-key'] != '' && inputs['custom-api-base-url'] != '' }}
+      env:
+        OPENAI_API_KEY: ${{ inputs['openai-api-key'] }}
+      shell: bash
+      run: |
+        node "${{ github.action_path }}/dist/main.js" write-custom-config \
+          --codex-home "${{ steps.resolve_home.outputs.codex-home }}" \
+          --base-url "${{ inputs['custom-api-base-url'] }}" \
+          --safety-strategy "${{ inputs['safety-strategy'] }}"
 
     - name: Drop sudo privilege, if appropriate
-      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' }}
+      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' && inputs['custom-api-base-url'] == '' }}
       shell: bash
       run: |
         case "${RUNNER_OS}" in
@@ -239,7 +243,7 @@ runs:
         esac
 
     - name: Verify sudo privilege removed
-      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' }}
+      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' && inputs['custom-api-base-url'] == '' }}
       shell: bash
       run: |
         if sudo -n true 2>/dev/null; then
