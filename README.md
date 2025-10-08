@@ -1,14 +1,13 @@
-# Codex GitHub Action
+# Codex Action for OpenAI-Compatible APIs
 
-Run [Codex](https://github.com/openai/codex#codex-exec) from a GitHub Actions workflow while keeping tight control over the privileges available to Codex. This action handles installing the Codex CLI and configuring it with a secure proxy to the [Responses API](https://platform.openai.com/docs/api-reference/responses).
+Run [Codex](https://github.com/openai/codex#codex-exec) from a GitHub Actions workflow with support for any OpenAI-compatible API endpoint. This action handles installing the Codex CLI and configuring it with your preferred AI provider.
 
-Users must provide their [`OPENAI_API_KEY`](https://platform.openai.com/api-keys) as a [GitHub Actions secret](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets) to use this action.
+Supports **OpenAI**, **Kimi**, **Fireworks AI**, and any OpenAI-compatible API endpoint. Users can provide their API key as a [GitHub Actions secret](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets) to use this action.
 
-**NEW**: You can now use your own OpenAPI-compatible endpoints instead of OpenAI's API! See [Custom OpenAPI Endpoints Guide](./docs/custom-openapi-endpoints.md) for details.
 
 ## Example: Create Your Own Pull Request Bot
 
-While Codex cloud offers a [powerful code review tool](https://developers.openai.com/codex/cloud/code-review) that you can use today, here is an example of how you can build your own code review workflow with `openai/codex-action` if you want to have more control over the experience.
+While Codex cloud offers a [powerful code review tool](https://developers.openai.com/codex/cloud/code-review) that you can use today, here is an example of how you can build your own code review workflow with this action if you want to have more control over the experience.
 
 In the following example, we define a workflow that is triggered whenever a user creates a pull request that:
 
@@ -17,7 +16,7 @@ In the following example, we define a workflow that is triggered whenever a user
 - Runs Codex with a `prompt` that includes the details specific to the PR.
 - Takes the output from Codex and posts it as a comment on the PR.
 
-See [`security.md`](./docs/security.md) for tips on using `openai/codex-action` securely.
+See [`security.md`](./docs/security.md) for tips on using this action securely.
 
 ```yaml
 name: Perform a code review when a pull request is created.
@@ -50,9 +49,11 @@ jobs:
 
       - name: Run Codex
         id: run_codex
-        uses: openai/codex-action@v1
+        uses: adorsys/codex-action@v1.0.1
         with:
-          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          api-key: ${{ secrets.API_KEY }}
+          api-base-url: ${{ secrets.API_BASE_URL }}
+          model: ${{ secrets.MODEL }}
           prompt: |
             This is PR #${{ github.event.pull_request.number }} for ${{ github.repository }}.
             Base SHA: ${{ github.event.pull_request.base.sha }}
@@ -94,9 +95,9 @@ jobs:
 
 | Name                   | Description                                                                                                                             | Default     |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
-| `openai-api-key`       | Secret used to start the Responses API proxy. Required when starting the proxy (key-only or key+prompt). Store it in `secrets`.         | `""`        |
-| `custom-api-base-url`  | Custom base URL for OpenAPI-compatible API endpoint (e.g., `https://ai.example.com/api`). See [Custom Endpoints](./docs/custom-openapi-endpoints.md). | `""`        |
-| `custom-model`         | Model name to use with custom API endpoint (e.g., `kimi-k2-instruct`). Only used when `custom-api-base-url` is provided.              | `""`        |
+| `api-key`              | API key for OpenAI-compatible endpoints (e.g., OpenAI, Kimi, Fireworks). Store it in `secrets`.                                         | `""`        |
+| `api-base-url`         | Base URL for OpenAI-compatible API endpoint (e.g., `https://api.openai.com/v1`, `https://api.moonshot.cn/v1`).                         | `""`        |
+| `model`                | Model name to use with the API endpoint (e.g., `gpt-3.5-turbo`, `kimi-k2-instruct`).                                                   | `""`        |
 | `prompt`               | Inline prompt text. Provide this or `prompt-file`.                                                                                      | `""`        |
 | `prompt-file`          | Path (relative to the repository root) of a file that contains the prompt. Provide this or `prompt`.                                    | `""`        |
 | `output-file`          | File where the final Codex message is written. Leave empty to skip writing a file.                                                      | `""`        |
@@ -150,7 +151,7 @@ jobs:
 - Run this action after `actions/checkout@v5` so Codex has access to your repository contents.
 - If you want Codex to have access to a narrow set of privileged functionality, consider running a local MCP server that can perform these actions and configure Codex to use it.
 - If you need more control over the CLI invocation, pass flags through `codex-args` or create a `config.toml` in `codex-home`.
-- Once `openai/codex-action` is run once with `openai-api-key`, you can also call `codex` from subsequent scripts in your job. (You can omit `prompt` and `prompt-file` from the action in this case.)
+- Once this action is run once with `api-key`, you can also call `codex` from subsequent scripts in your job. (You can omit `prompt` and `prompt-file` from the action in this case.)
 
 ## License
 

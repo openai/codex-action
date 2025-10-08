@@ -21,11 +21,11 @@ jobs:
           - unsafe
     steps:
       - name: Run Codex (${{ matrix.safety-strategy }})
-        uses: openai/codex-action@v1
+        uses: adorsys/codex-action@v1.0.1
         with:
-          # An OpenAI API key often starts with `sk-proj-` and is followed
+          # An API key often starts with `sk-proj-` and is followed
           # by random characters matching [A-Za-z-0-9_-].
-          openai-api-key: sk-proj-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ
+          api-key: sk-proj-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ
           safety-strategy: ${{ matrix.safety-strategy }}
 
       - name: Try to dump the key from the codex-responses-api-proxy process
@@ -53,7 +53,7 @@ jobs:
           # Use ordinary grep to search for the key pattern in the dumped memory files.
           matches=$(grep -aPo '(?<![A-Za-z0-9_-])sk-proj-[A-Za-z0-9_-]+(?![A-Za-z0-9_-])' /tmp/${PID}-*.bin | sort -u)
           if [ -n "$matches" ]; then
-            # Note that if `openai-api-key` was read from a GitHub secret, the
+            # Note that if the API key was read from a GitHub secret, the
             # secret scanning feature would redact it from logs, but this
             # could easily be circumvented by using a toy cipher like ROT13:
             # https://en.wikipedia.org/wiki/ROT13.

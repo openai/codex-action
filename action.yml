@@ -1,6 +1,6 @@
-name: "Codex Exec Action"
-description: "Run `codex exec` with a prompt."
-author: "OpenAI"
+name: "Codex Action for OpenAI-Compatible APIs"
+description: "Run `codex exec` with OpenAI-compatible API endpoints."
+author: "Adorsys"
 inputs:
   prompt:
     description: "Prompt to pass to Codex. `prompt` or `prompt-file` must be provided."
@@ -14,16 +14,16 @@ inputs:
     description: "File where the final Codex message is written. Leave empty to skip writing a file."
     required: false
     default: ""
-  openai-api-key:
-    description: "OpenAI API key used by Codex. Can also be used for custom OpenAPI-compatible endpoints."
+  api-key:
+    description: "API key for OpenAI-compatible endpoints (e.g., OpenAI, Kimi, Fireworks). Can also be used for custom OpenAPI-compatible endpoints."
     required: false
     default: ""
-  custom-api-base-url:
-    description: "Custom base URL for OpenAPI-compatible API endpoint (e.g., https://ai.example.com/api). If provided, the action will use this instead of the OpenAI proxy."
+  api-base-url:
+    description: "Base URL for OpenAI-compatible API endpoint (e.g., https://api.openai.com/v1, https://api.moonshot.cn/v1). If provided, uses direct API calls instead of proxy."
     required: false
     default: ""
-  custom-model:
-    description: "Model name to use with custom API endpoint (e.g., kimi-k2-instruct). Only used when custom-api-base-url is provided."
+  model:
+    description: "Model name to use with the API endpoint (e.g., gpt-3.5-turbo, kimi-k2-instruct). Required when using custom endpoints."
     required: false
     default: ""
   working-directory:
@@ -81,7 +81,7 @@ inputs:
       * `unsafe` (NOT RECOMMENDED) Do not try to restrict Codex's privileges at all.
         This is extremely dangerous, as the default user for this Action likely
         has sudo privileges, which means it can read secrets stored in memory
-        (such as the value of `openai-api-key`) and print them to the output
+        (such as the value of the API key) and print them to the output
         of the GitHub Action or exfiltrate them in other ways.
     required: false
     default: "drop-sudo"
@@ -133,7 +133,7 @@ runs:
       run: npm install -g "@openai/codex@${{ inputs['codex-version'] }}"
 
     - name: Install Codex Responses API proxy
-      if: ${{ inputs['custom-api-base-url'] == '' }}
+      if: ${{ inputs['api-base-url'] == '' }}
       shell: bash
       run: npm install -g "@openai/codex-responses-api-proxy@${{ inputs['codex-version'] }}"
 
@@ -156,7 +156,7 @@ runs:
 
     - name: Check Responses API proxy status
       id: start_proxy
-      if: ${{ inputs['openai-api-key'] != '' && inputs['custom-api-base-url'] == '' }}
+      if: ${{ inputs['api-key'] != '' && inputs['api-base-url'] == '' }}
       shell: bash
       run: |
         server_info_file="${{ steps.derive_server_info.outputs.server_info_file }}"
@@ -172,9 +172,9 @@ runs:
     # key do not end up in the memory of the `codex-responses-api-proxy` process
     # where environment variables are stored.
     - name: Start Responses API proxy
-      if: ${{ inputs['openai-api-key'] != '' && inputs['custom-api-base-url'] == '' && steps.start_proxy.outputs.server_info_file_exists == 'false' }}
+      if: ${{ inputs['api-key'] != '' && inputs['api-base-url'] == '' && steps.start_proxy.outputs.server_info_file_exists == 'false' }}
       env:
-        OPENAI_API_KEY: ${{ inputs['openai-api-key'] }}
+        OPENAI_API_KEY: ${{ inputs['api-key'] }}
       shell: bash
       run: |
         (
@@ -182,7 +182,7 @@ runs:
         ) &
 
     - name: Wait for Responses API proxy
-      if: ${{ inputs['openai-api-key'] != '' && inputs['custom-api-base-url'] == '' && steps.start_proxy.outputs.server_info_file_exists == 'false' }}
+      if: ${{ inputs['api-key'] != '' && inputs['api-base-url'] == '' && steps.start_proxy.outputs.server_info_file_exists == 'false' }}
       shell: bash
       run: |
         server_info_file="${{ steps.derive_server_info.outputs.server_info_file }}"
@@ -205,12 +205,12 @@ runs:
     # This step has an output named `port`.
     - name: Read server info
       id: read_server_info
-      if: ${{ inputs['openai-api-key'] != '' && inputs['custom-api-base-url'] == '' }}
+      if: ${{ inputs['api-key'] != '' && inputs['api-base-url'] == '' }}
       shell: bash
       run: node "${{ github.action_path }}/dist/main.js" read-server-info "${{ steps.derive_server_info.outputs.server_info_file }}"
 
     - name: Write Codex proxy config
-      if: ${{ inputs['openai-api-key'] != '' && inputs['custom-api-base-url'] == '' }}
+      if: ${{ inputs['api-key'] != '' && inputs['api-base-url'] == '' }}
       shell: bash
       run: |
         node "${{ github.action_path }}/dist/main.js" write-proxy-config \
@@ -219,19 +219,19 @@ runs:
           --safety-strategy "${{ inputs['safety-strategy'] }}"
 
     - name: Write Codex custom endpoint config
-      if: ${{ inputs['openai-api-key'] != '' && inputs['custom-api-base-url'] != '' }}
+      if: ${{ inputs['api-key'] != '' && inputs['api-base-url'] != '' }}
       env:
-        OPENAI_API_KEY: ${{ inputs['openai-api-key'] }}
+        OPENAI_API_KEY: ${{ inputs['api-key'] }}
       shell: bash
       run: |
         node "${{ github.action_path }}/dist/main.js" write-custom-config \
           --codex-home "${{ steps.resolve_home.outputs.codex-home }}" \
-          --base-url "${{ inputs['custom-api-base-url'] }}" \
+          --base-url "${{ inputs['api-base-url'] }}" \
           --safety-strategy "${{ inputs['safety-strategy'] }}" \
-          --model "${{ inputs['custom-model'] }}"
+          --model "${{ inputs['model'] }}"
 
     - name: Drop sudo privilege, if appropriate
-      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' && inputs['custom-api-base-url'] == '' }}
+      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['api-key'] != '' && inputs['api-base-url'] == '' }}
       shell: bash
       run: |
         case "${RUNNER_OS}" in
@@ -248,7 +248,7 @@ runs:
         esac
 
     - name: Verify sudo privilege removed
-      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' && inputs['custom-api-base-url'] == '' }}
+      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['api-key'] != '' && inputs['api-base-url'] == '' }}
       shell: bash
       run: |
         if sudo -n true 2>/dev/null; then
@@ -270,10 +270,10 @@ runs:
         CODEX_ARGS: ${{ inputs['codex-args'] }}
         CODEX_OUTPUT_SCHEMA: ${{ inputs['output-schema'] }}
         CODEX_OUTPUT_SCHEMA_FILE: ${{ inputs['output-schema-file'] }}
-        CODEX_MODEL: ${{ inputs['custom-model'] || inputs.model }}
+        CODEX_MODEL: ${{ inputs['model'] }}
         CODEX_SAFETY_STRATEGY: ${{ inputs['safety-strategy'] }}
         CODEX_USER: ${{ inputs['codex-user'] }}
-        OPENAI_API_KEY: ${{ inputs['openai-api-key'] }}
+        OPENAI_API_KEY: ${{ inputs['api-key'] }}
         FORCE_COLOR: 1
       shell: bash
       run: |

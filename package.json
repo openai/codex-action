@@ -1,7 +1,7 @@
 {
-  "name": "@openai/codex-action",
-  "version": "0.0.0",
-  "description": "GitHub Action to run codex exec via the Codex CLI with accompanying helper steps",
+  "name": "@adorsys/codex-action",
+  "version": "1.0.1",
+  "description": "GitHub Action to run codex exec with OpenAI-compatible API endpoints",
   "private": true,
   "scripts": {
     "build": "esbuild src/main.ts --sourcemap=inline --format=cjs --bundle --platform=node --target=node20 --outdir=dist",
