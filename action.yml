@@ -272,6 +272,7 @@ runs:
         CODEX_MODEL: ${{ inputs['custom-model'] || inputs.model }}
         CODEX_SAFETY_STRATEGY: ${{ inputs['safety-strategy'] }}
         CODEX_USER: ${{ inputs['codex-user'] }}
+        OPENAI_API_KEY: ${{ inputs['openai-api-key'] }}
         FORCE_COLOR: 1
       shell: bash
       run: |
