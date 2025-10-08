@@ -4,6 +4,8 @@ Run [Codex](https://github.com/openai/codex#codex-exec) from a GitHub Actions wo
 
 Users must provide their [`OPENAI_API_KEY`](https://platform.openai.com/api-keys) as a [GitHub Actions secret](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets) to use this action.
 
+**NEW**: You can now use your own OpenAPI-compatible endpoints instead of OpenAI's API! See [Custom OpenAPI Endpoints Guide](./docs/custom-openapi-endpoints.md) for details.
+
 ## Example: Create Your Own Pull Request Bot
 
 While Codex cloud offers a [powerful code review tool](https://developers.openai.com/codex/cloud/code-review) that you can use today, here is an example of how you can build your own code review workflow with `openai/codex-action` if you want to have more control over the experience.
@@ -90,24 +92,25 @@ jobs:
 
 ## Inputs
 
-| Name                 | Description                                                                                                                             | Default     |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
-| `openai-api-key`     | Secret used to start the Responses API proxy. Required when starting the proxy (key-only or key+prompt). Store it in `secrets`.         | `""`        |
-| `prompt`             | Inline prompt text. Provide this or `prompt-file`.                                                                                      | `""`        |
-| `prompt-file`        | Path (relative to the repository root) of a file that contains the prompt. Provide this or `prompt`.                                    | `""`        |
-| `output-file`        | File where the final Codex message is written. Leave empty to skip writing a file.                                                      | `""`        |
-| `working-directory`  | Directory passed to `codex exec --cd`. Defaults to the repository root.                                                                 | `""`        |
-| `sandbox`            | Sandbox mode for Codex. One of `workspace-write` (default), `read-only` or `danger-full-access`.                                        | `""`        |
-| `codex-version`      | Version of `@openai/codex` to install.                                                                                                  | `""`        |
-| `codex-args`         | Extra arguments forwarded to `codex exec`. Accepts JSON arrays (`["--flag", "value"]`) or shell-style strings.                          | `""`        |
-| `output-schema`      | Inline schema contents written to a temp file and passed to `codex exec --output-schema`. Mutually exclusive with `output-schema-file`. | `""`        |
-| `output-schema-file` | Schema file forwarded to `codex exec --output-schema`. Leave empty to skip passing the option.                                          | `""`        |
-| `model`              | Model the agent should use. Leave empty to let Codex pick its default.                                                                  | `""`        |
-| `codex-home`         | Directory to use as the Codex CLI home (config/cache). Uses the CLI default when empty.                                                 | `""`        |
-| `safety-strategy`    | Controls how the action restricts Codex privileges. See [Safety strategy](#safety-strategy).                                            | `drop-sudo` |
-| `codex-user`         | Username to run Codex as when `safety-strategy` is `unprivileged-user`.                                                                 | `""`        |
-| `allow-users`        | List of GitHub usernames who can trigger the action in addition to those who have write access to the repo.                             | ""          |
-| `allow-bots`         | Allow runs triggered by GitHub Apps/bot accounts to bypass the write-access check.                                                      | "false"     |
+| Name                   | Description                                                                                                                             | Default     |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| `openai-api-key`       | Secret used to start the Responses API proxy. Required when starting the proxy (key-only or key+prompt). Store it in `secrets`.         | `""`        |
+| `custom-api-base-url`  | Custom base URL for OpenAPI-compatible API endpoint (e.g., `https://ai.example.com/api`). See [Custom Endpoints](./docs/custom-openapi-endpoints.md). | `""`        |
+| `prompt`               | Inline prompt text. Provide this or `prompt-file`.                                                                                      | `""`        |
+| `prompt-file`          | Path (relative to the repository root) of a file that contains the prompt. Provide this or `prompt`.                                    | `""`        |
+| `output-file`          | File where the final Codex message is written. Leave empty to skip writing a file.                                                      | `""`        |
+| `working-directory`    | Directory passed to `codex exec --cd`. Defaults to the repository root.                                                                 | `""`        |
+| `sandbox`              | Sandbox mode for Codex. One of `workspace-write` (default), `read-only` or `danger-full-access`.                                        | `""`        |
+| `codex-version`        | Version of `@openai/codex` to install.                                                                                                  | `""`        |
+| `codex-args`           | Extra arguments forwarded to `codex exec`. Accepts JSON arrays (`["--flag", "value"]`) or shell-style strings.                          | `""`        |
+| `output-schema`        | Inline schema contents written to a temp file and passed to `codex exec --output-schema`. Mutually exclusive with `output-schema-file`. | `""`        |
+| `output-schema-file`   | Schema file forwarded to `codex exec --output-schema`. Leave empty to skip passing the option.                                          | `""`        |
+| `model`                | Model the agent should use. Leave empty to let Codex pick its default.                                                                  | `""`        |
+| `codex-home`           | Directory to use as the Codex CLI home (config/cache). Uses the CLI default when empty.                                                 | `""`        |
+| `safety-strategy`      | Controls how the action restricts Codex privileges. See [Safety strategy](#safety-strategy).                                            | `drop-sudo` |
+| `codex-user`           | Username to run Codex as when `safety-strategy` is `unprivileged-user`.                                                                 | `""`        |
+| `allow-users`          | List of GitHub usernames who can trigger the action in addition to those who have write access to the repo.                             | ""          |
+| `allow-bots`           | Allow runs triggered by GitHub Apps/bot accounts to bypass the write-access check.                                                      | "false"     |
 
 ## Safety Strategy
 

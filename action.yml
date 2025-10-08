@@ -15,7 +15,11 @@ inputs:
     required: false
     default: ""
   openai-api-key:
-    description: "OpenAI API key used by Codex."
+    description: "OpenAI API key used by Codex. Can also be used for custom OpenAPI-compatible endpoints."
+    required: false
+    default: ""
+  custom-api-base-url:
+    description: "Custom base URL for OpenAPI-compatible API endpoint (e.g., https://ai.example.com/api). If provided, the action will use this instead of the OpenAI proxy."
     required: false
     default: ""
   working-directory:
@@ -204,10 +208,18 @@ runs:
       if: ${{ inputs['openai-api-key'] != '' }}
       shell: bash
       run: |
-        node "${{ github.action_path }}/dist/main.js" write-proxy-config \
-          --codex-home "${{ steps.resolve_home.outputs.codex-home }}" \
-          --port "${{ steps.read_server_info.outputs.port }}" \
-          --safety-strategy "${{ inputs['safety-strategy'] }}"
+        if [ -n "${{ inputs['custom-api-base-url'] }}" ]; then
+          node "${{ github.action_path }}/dist/main.js" write-proxy-config \
+            --codex-home "${{ steps.resolve_home.outputs.codex-home }}" \
+            --port "${{ steps.read_server_info.outputs.port }}" \
+            --safety-strategy "${{ inputs['safety-strategy'] }}" \
+            --custom-base-url "${{ inputs['custom-api-base-url'] }}"
+        else
+          node "${{ github.action_path }}/dist/main.js" write-proxy-config \
+            --codex-home "${{ steps.resolve_home.outputs.codex-home }}" \
+            --port "${{ steps.read_server_info.outputs.port }}" \
+            --safety-strategy "${{ inputs['safety-strategy'] }}"
+        fi
 
     - name: Drop sudo privilege, if appropriate
       if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' }}

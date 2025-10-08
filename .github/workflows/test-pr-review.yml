@@ -1,0 +1,54 @@
+name: Test Custom Endpoint - PR Review
+
+# This tests the action as a real user would use it
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  test-pr-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Review code with custom AI endpoint
+        id: review
+        # uses: ./ tells GitHub to look for action.yml in the repo root
+        # action.yml (in this repo) defines the steps that run dist/main.js
+        uses: ./
+        with:
+          openai-api-key: ${{ secrets.CUSTOM_API_KEY }}
+          custom-api-base-url: ${{ secrets.CUSTOM_API_BASE_URL }}
+          prompt: |
+            Analyze the code changes in this repository and provide feedback.
+            Focus on code quality, potential bugs, and improvements.
+            Keep the response concise.
+
+      - name: Post review commenfdistz
+        if: github.event_name == 'pull_request' && steps.review.outputs.final-message != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '## AI Code Review\n\n' + process.env.REVIEW
+            });
+        env:
+          REVIEW: ${{ steps.review.outputs.final-message }}
+
+      - name: Show results
+        run: |
+          echo " Test completed!"
+          echo "AI endpoint used: ${{ secrets.CUSTOM_API_BASE_URL }}"
+          echo ""
+          echo "Review output:"
+          echo "${{ steps.review.outputs.final-message }}"

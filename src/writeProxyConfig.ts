@@ -9,7 +9,8 @@ const MODEL_PROVIDER = "openai-proxy";
 export async function writeProxyConfig(
   codexHome: string,
   port: number,
-  safetyStrategy: SafetyStrategy
+  safetyStrategy: SafetyStrategy,
+  customBaseUrl?: string
 ): Promise<void> {
   const configPath = path.join(codexHome, "config.toml");
 
@@ -30,7 +31,7 @@ model_provider = "${MODEL_PROVIDER}"
 # Added by codex-action.
 [model_providers.${MODEL_PROVIDER}]
 name = "OpenAI Proxy"
-base_url = "http://127.0.0.1:${port}/v1"
+base_url = "${customBaseUrl || `http://127.0.0.1:${port}/v1`}"
 wire_api = "responses"
 `;
 
