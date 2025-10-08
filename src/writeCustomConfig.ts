@@ -65,4 +65,6 @@ api_key = "${apiKey}"
   }
   
   console.log(`Custom endpoint configuration written to ${configPath}`);
+  console.log(`Config file contents:`);
+  console.log(output);
 }
