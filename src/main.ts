@@ -4,6 +4,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import pkg from "../package.json" assert { type: "json" };
 
+// Enhanced AI code review functionality - supports OpenAI-compatible APIs
+
 import { readServerInfo } from "./readServerInfo";
 import {
   SandboxMode,
