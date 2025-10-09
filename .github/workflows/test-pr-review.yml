@@ -18,19 +18,41 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Get PR diff
+        id: diff
+        run: |
+          git fetch origin ${{ github.event.pull_request.base.ref }}:${{ github.event.pull_request.base.ref }}
+          DIFF=$(git diff ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} || echo "No changes found")
+          # Escape the diff for GitHub Actions output
+          DIFF="${DIFF//'%'/'%25'}"
+          DIFF="${DIFF//$'\n'/'%0A'}"
+          DIFF="${DIFF//$'\r'/'%0D'}"
+          echo "diff=$DIFF" >> $GITHUB_OUTPUT
+
       - name: Review code with custom AI endpoint
         id: review
         # uses: ./ tells GitHub to look for action.yml in the repo root
         # action.yml (in this repo) defines the steps that run dist/main.js
         uses: ./
         with:
-          api-key: ${{ secrets.CUSTOM_API_KEY }}
-          api-base-url: ${{ secrets.CUSTOM_API_BASE_URL }}
-          model: ${{ secrets.CUSTOM_MODEL }}
+          openai-api-key: ${{ secrets.CUSTOM_API_KEY }}
+          custom-api-base-url: ${{ secrets.CUSTOM_API_BASE_URL }}
+          custom-model: ${{ secrets.CUSTOM_MODEL }}
           prompt: |
-            Analyze the code changes in this repository and provide feedback.
-            Focus on code quality, potential bugs, and improvements.
-            Keep the response concise.
+            Analyze the following code changes from this pull request:
+            
+            ${{ steps.diff.outputs.diff }}
+            
+            Review for:
+            - Security vulnerabilities
+            - Code quality issues
+            - Potential bugs
+            - Performance implications
+            - Architecture consistency
+            
+            Focus on the specific changes introduced by this PR.
+            Provide specific, actionable feedback.
+            Keep the response concise and focused on the PR changes.
 
       - name: Post review comment
         if: github.event_name == 'pull_request' && steps.review.outputs.final-message != ''
