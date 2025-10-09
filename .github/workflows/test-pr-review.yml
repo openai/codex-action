@@ -19,10 +19,25 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Prepare review prompt
+      - name: Prepare review prompt with smart truncation
         run: |
           git fetch origin ${{ github.event.pull_request.base.ref }}:${{ github.event.pull_request.base.ref }}
           DIFF=$(git diff ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} || echo "No changes found")
+          
+          # Get diff stats for summary
+          DIFF_STATS=$(git diff --stat ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }})
+          
+          # Calculate diff size and truncate if needed (target max 200KB)
+          DIFF_SIZE=${#DIFF}
+          MAX_SIZE=200000
+          
+          if [ $DIFF_SIZE -gt $MAX_SIZE ]; then
+            echo "⚠️ Large diff detected ($DIFF_SIZE chars), truncating to first $MAX_SIZE chars"
+            DIFF="${DIFF:0:$MAX_SIZE}"
+            TRUNCATED=true
+          else
+            TRUNCATED=false
+          fi
           
           cat > /tmp/review-prompt.txt << 'EOF'
           Review this PR for logic errors, security issues, and code quality. Provide specific, actionable feedback with file:line references.
@@ -42,8 +57,17 @@ jobs:
           PR Title: ${{ github.event.pull_request.title }}
           PR Description: ${{ github.event.pull_request.body }}
 
-          Code Changes:
+          Diff Statistics:
           EOF
+          echo "$DIFF_STATS" >> /tmp/review-prompt.txt
+          echo "" >> /tmp/review-prompt.txt
+          
+          if [ "$TRUNCATED" = true ]; then
+            echo "⚠️ Note: This is a large PR. Diff has been truncated for review. Focus on the changes shown." >> /tmp/review-prompt.txt
+            echo "" >> /tmp/review-prompt.txt
+          fi
+          
+          echo "Code Changes:" >> /tmp/review-prompt.txt
           echo "$DIFF" >> /tmp/review-prompt.txt
 
       - name: Review code with custom AI endpoint
