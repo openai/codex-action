@@ -4,6 +4,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import pkg from "../package.json" assert { type: "json" };
 
+// Test change for PR review workflow validation
+// This demonstrates the enhanced AI code review functionality
+
 import { readServerInfo } from "./readServerInfo";
 import {
   SandboxMode,
