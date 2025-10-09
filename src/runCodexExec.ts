@@ -192,7 +192,6 @@ async function finalizeExecution(
     let lastMessage: string;
     if (runAsUser == null) {
       lastMessage = await readFile(outputFile.file, "utf8");
-      setOutput("final-message", lastMessage);
     } else {
       lastMessage = await checkOutput([
         "sudo",
