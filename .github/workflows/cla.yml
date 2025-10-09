@@ -27,3 +27,6 @@ jobs:
           path-to-signatures: signatures/cla.json
           branch: cla-signatures
           allowlist: dependabot[bot]
+          use-dco-flag: false
+          lock-pullrequest-aftermerge: true
+          suggest-recheck: true

@@ -36,9 +36,9 @@ jobs:
         # action.yml (in this repo) defines the steps that run dist/main.js
         uses: ./
         with:
-          openai-api-key: ${{ secrets.CUSTOM_API_KEY }}
-          custom-api-base-url: ${{ secrets.CUSTOM_API_BASE_URL }}
-          custom-model: ${{ secrets.CUSTOM_MODEL }}
+          api-key: ${{ secrets.CUSTOM_API_KEY }}
+          api-base-url: ${{ secrets.CUSTOM_API_BASE_URL }}
+          model: ${{ secrets.CUSTOM_MODEL }}
           prompt: |
             You are a senior software engineer performing an in-depth code review of a pull request.
             The input will contain the pull request title, description, and code diff.
