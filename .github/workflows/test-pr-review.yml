@@ -36,53 +36,26 @@ jobs:
         # action.yml (in this repo) defines the steps that run dist/main.js
         uses: ./
         with:
-          openai-api-key: ${{ secrets.CUSTOM_API_KEY }}
-          custom-api-base-url: ${{ secrets.CUSTOM_API_BASE_URL }}
-          custom-model: ${{ secrets.CUSTOM_MODEL }}
+          api-key: ${{ secrets.CUSTOM_API_KEY }}
+          api-base-url: ${{ secrets.CUSTOM_API_BASE_URL }}
+          model: ${{ secrets.CUSTOM_MODEL }}
           prompt: |
-            You are a senior software engineer performing an in-depth code review of a pull request.
-            The input will contain the pull request title, description, and code diff.
-            Your goal is to produce a professional review comment in Markdown format.
+            Review this PR for logic errors, security issues, and code quality. Provide specific, actionable feedback with file:line references. Format output as:
 
-            **Instructions:**
-            1. Understand the PR purpose from its title and description.
-            2. Examine the code changes for:
-               - Logic errors or bugs
-               - Code quality and readability
-               - Architecture and design consistency
-               - Security or performance risks
-               - Test coverage and documentation gaps
-            3. Give specific, actionable feedback — mention file names and lines if possible.
-            4. Summarize your findings under clear sections:
-               -  PR Summary
-               -  Issues to Address
-               -  Suggestions or Improvements
-               -  Good Practices
+            ## PR Review Summary
+            **Intent:** [one-line summary]
 
-            **Output format (Markdown):**
-            ```
-            ##  PR Review Summary
-            **Intent:** <one-line summary>
+            ### Issues to Address
+            1. [file:line] - [problem + suggestion]
 
-            ###  Issues to Address
-            1. **[file:line]** - <problem + suggestion>
+            ### Suggestions
+            - [improvement ideas]
 
-            ###  Suggestions / Enhancements
-            - <ideas for better structure, clarity, or efficiency>
+            ### Good Practices
+            - [positive notes]
 
-            ###  Good Practices
-            - <positive notes or patterns worth keeping>
-            ```
-
-            Be concise but thorough, constructive, and professional.
-            Avoid generic praise. Focus on helping the developer improve code quality and maintainability.
-
-            **PR Context:**
-            Title: ${{ github.event.pull_request.title }}
-            Description: ${{ github.event.pull_request.body }}
-            
-            **Code Changes:**
-            ${{ steps.diff.outputs.diff }}
+            PR: ${{ github.event.pull_request.title }} - ${{ github.event.pull_request.body }}
+            Changes: ${{ steps.diff.outputs.diff }}
 
       - name: Post review comment
         if: github.event_name == 'pull_request' && steps.review.outputs.final-message != ''
