@@ -19,43 +19,41 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Get PR diff
-        id: diff
+      - name: Prepare review prompt
         run: |
           git fetch origin ${{ github.event.pull_request.base.ref }}:${{ github.event.pull_request.base.ref }}
           DIFF=$(git diff ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} || echo "No changes found")
-          # Escape the diff for GitHub Actions output
-          DIFF="${DIFF//'%'/'%25'}"
-          DIFF="${DIFF//$'\n'/'%0A'}"
-          DIFF="${DIFF//$'\r'/'%0D'}"
-          echo "diff=$DIFF" >> $GITHUB_OUTPUT
+          
+          cat > /tmp/review-prompt.txt << 'EOF'
+          Review this PR for logic errors, security issues, and code quality. Provide specific, actionable feedback with file:line references.
+
+          ## PR Review Summary
+          **Intent:** [one-line summary]
+
+          ### Issues to Address
+          1. [file:line] - [problem + suggestion]
+
+          ### Suggestions
+          - [improvement ideas]
+
+          ### Good Practices
+          - [positive notes]
+
+          PR Title: ${{ github.event.pull_request.title }}
+          PR Description: ${{ github.event.pull_request.body }}
+
+          Code Changes:
+          EOF
+          echo "$DIFF" >> /tmp/review-prompt.txt
 
       - name: Review code with custom AI endpoint
         id: review
-        # uses: ./ tells GitHub to look for action.yml in the repo root
-        # action.yml (in this repo) defines the steps that run dist/main.js
         uses: ./
         with:
           api-key: ${{ secrets.CUSTOM_API_KEY }}
           api-base-url: ${{ secrets.CUSTOM_API_BASE_URL }}
           model: ${{ secrets.CUSTOM_MODEL }}
-          prompt: |
-            Review this PR for logic errors, security issues, and code quality. Provide specific, actionable feedback with file:line references. Format output as:
-
-            ## PR Review Summary
-            **Intent:** [one-line summary]
-
-            ### Issues to Address
-            1. [file:line] - [problem + suggestion]
-
-            ### Suggestions
-            - [improvement ideas]
-
-            ### Good Practices
-            - [positive notes]
-
-            PR: ${{ github.event.pull_request.title }} - ${{ github.event.pull_request.body }}
-            Changes: ${{ steps.diff.outputs.diff }}
+          prompt-file: /tmp/review-prompt.txt
 
       - name: Post review comment
         if: github.event_name == 'pull_request' && steps.review.outputs.final-message != ''
