@@ -12,6 +12,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -92,7 +93,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: '## AI Code Review\n\n' + process.env.REVIEW
+              body: '##  AI Code Review\n\n' + process.env.REVIEW
             });
         env:
           REVIEW: ${{ steps.review.outputs.final-message }}
@@ -102,5 +103,5 @@ jobs:
           echo " Test completed!"
           echo "AI endpoint used: ${{ secrets.CUSTOM_API_BASE_URL }}"
           echo ""
-          echo "Review output:"
+          echo " Review output:"
           echo "${{ steps.review.outputs.final-message }}"
