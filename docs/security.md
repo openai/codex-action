@@ -30,6 +30,14 @@ To underscore the importance of specifying either `drop-sudo` or `unprivileged-u
 
 In the unfortunate event that your API key has leaked, see [this article](https://help.openai.com/en/articles/9047852-how-can-i-delete-my-api-key) that explains how to delete/revoke an API key using the [OpenAI Platform's API keys page](https://platform.openai.com/api-keys).
 
+## Protecting your Codex `auth.json`
+
+When using ChatGPT subscription auth with this action, you provide a base64-encoded `auth.json` via the `codex-auth-json-b64` input (ideally stored in `secrets`). Treat this value with the same care as an API key:
+
+- Use `safety-strategy: drop-sudo` or `unprivileged-user` so a compromised run cannot trivially read process memory or escalate to harvest secrets.
+- The action writes `auth.json` with file permissions `0600` and avoids logging its contents.
+- Rotate credentials if you suspect unauthorized access to a runner or your repository secrets.
+
 ## Recommendation: run `openai/codex-action` as the last step in a job
 
 Particularly if you run Codex with loose permissions, there are no guarantees what the state of the host is when the `openai/codex-action` completes. For example:
