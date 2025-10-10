@@ -29,7 +29,7 @@ jobs:
     permissions:
       contents: read
     outputs:
-      final_message: ${{ steps.run_codex.outputs.final-message }}
+      final_message: ${{ steps.run_codex.outputs['final-message'] }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -138,7 +138,7 @@ jobs:
   codex:
     # ...
     outputs:
-      final_message: ${{ steps.run_codex.outputs.final-message }}
+      final_message: ${{ steps.run_codex.outputs['final-message'] }}
 ```
 
 ## Additional tips
