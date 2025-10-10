@@ -17,6 +17,7 @@ import { ensureActorHasWriteAccess } from "./checkActorPermissions";
 import parseArgsStringToArgv from "string-argv";
 import { writeProxyConfig } from "./writeProxyConfig";
 import { checkOutput } from "./checkOutput";
+import { writeAuthJson } from "./writeAuthJson";
 
 export async function main() {
   const program = new Command();
@@ -93,6 +94,38 @@ export async function main() {
       }) => {
         const safetyStrategy = toSafetyStrategy(options.safetyStrategy);
         await writeProxyConfig(options.codexHome, options.port, safetyStrategy);
+      }
+    );
+
+  program
+    .command("write-auth-json")
+    .description(
+      "Write base64-encoded auth.json into CODEX_HOME/auth.json with secure permissions"
+    )
+    .requiredOption("--codex-home <DIRECTORY>", "Path to Codex home directory")
+    .requiredOption(
+      "--safety-strategy <strategy>",
+      "Safety strategy to use. One of 'drop-sudo', 'read-only', 'unprivileged-user', or 'unsafe'."
+    )
+    .requiredOption(
+      "--codex-user <user>",
+      "Codex user to consider when safety strategy is 'unprivileged-user'"
+    )
+    .action(
+      async (options: { codexHome: string; safetyStrategy: string; codexUser: string }) => {
+        const safetyStrategy = toSafetyStrategy(options.safetyStrategy);
+        const base64 = (process.env.CODEX_AUTH_JSON_B64 ?? "").trim();
+        if (base64.length === 0) {
+          throw new Error(
+            "CODEX_AUTH_JSON_B64 environment variable must be provided and non-empty."
+          );
+        }
+        await writeAuthJson(
+          options.codexHome,
+          safetyStrategy,
+          emptyAsNull(options.codexUser),
+          base64
+        );
       }
     );
 
