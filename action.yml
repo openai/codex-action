@@ -1,6 +1,9 @@
 name: "Codex Action for OpenAI-Compatible APIs"
 description: "Run `codex exec` with OpenAI-compatible API endpoints."
 author: "Adorsys"
+branding:
+  icon: 'code'
+  color: 'blue'
 inputs:
   prompt:
     description: "Prompt to pass to Codex. `prompt` or `prompt-file` must be provided."
