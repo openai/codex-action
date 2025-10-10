@@ -54,18 +54,14 @@ jobs:
           api-key: ${{ secrets.API_KEY }}
           api-base-url: ${{ secrets.API_BASE_URL }}
           model: ${{ secrets.MODEL }}
+          working-directory: ${{ github.workspace }}
           prompt: |
-            This is PR #${{ github.event.pull_request.number }} for ${{ github.repository }}.
-            Base SHA: ${{ github.event.pull_request.base.sha }}
-            Head SHA: ${{ github.event.pull_request.head.sha }}
-
-            Review ONLY the changes introduced by the PR.
-            Suggest any improvements, potential bugs, or issues.
-            Be concise and specific in your feedback.
-
-            Pull request title and body:
-            ----
-            ${{ github.event.pull_request.title }}
+            You are reviewing PR #${{ github.event.pull_request.number }} with full codebase exploration.
+            
+            Available tools: list_dir, grep_files, read_file
+            Use these to understand context before reviewing.
+            
+            PR: ${{ github.event.pull_request.title }}
             ${{ github.event.pull_request.body }}
 
   post_feedback:

@@ -40,9 +40,22 @@ jobs:
           fi
           
           cat > /tmp/review-prompt.txt << 'EOF'
-          Review this PR for logic errors, security issues, and code quality. Provide specific, actionable feedback with file:line references.
+          You are reviewing a pull request with FULL CODEBASE EXPLORATION capabilities.
 
-          ## PR Review Summary
+          ## Available Tools
+          Before reviewing, you can use these tools to explore the codebase:
+          - list_dir - List files and directories to understand project structure
+          - grep_files - Search for code patterns across the codebase
+          - read_file - Read any file to understand context
+
+          ## Review Strategy
+          1. Use list_dir to understand the project structure
+          2. Use grep_files to find related code patterns
+          3. Use read_file to examine files related to the changes
+          4. Provide comprehensive, context-aware feedback
+
+          ## Output Format
+          ### PR Review Summary
           **Intent:** [one-line summary]
 
           ### Issues to Address
@@ -53,6 +66,8 @@ jobs:
 
           ### Good Practices
           - [positive notes]
+
+          ---
 
           PR Title: ${{ github.event.pull_request.title }}
           PR Description: ${{ github.event.pull_request.body }}
