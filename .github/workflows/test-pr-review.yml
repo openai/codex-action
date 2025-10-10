@@ -54,8 +54,9 @@ jobs:
           3. Use read_file to examine files related to the changes
           4. Provide comprehensive, context-aware feedback
 
-          ## Output Format
-          ### PR Review Summary
+          IMPORTANT: After exploring, you MUST provide a final review in this format:
+
+          ## PR Review Summary
           **Intent:** [one-line summary]
 
           ### Issues to Address
@@ -78,7 +79,7 @@ jobs:
           echo "" >> /tmp/review-prompt.txt
           
           if [ "$TRUNCATED" = true ]; then
-            echo "⚠️ Note: This is a large PR. Diff has been truncated for review. Focus on the changes shown." >> /tmp/review-prompt.txt
+            echo " Note: This is a large PR. Diff has been truncated for review. Focus on the changes shown." >> /tmp/review-prompt.txt
             echo "" >> /tmp/review-prompt.txt
           fi
           
@@ -93,6 +94,7 @@ jobs:
           api-base-url: ${{ secrets.CUSTOM_API_BASE_URL }}
           model: ${{ secrets.CUSTOM_MODEL }}
           prompt-file: /tmp/review-prompt.txt
+          working-directory: ${{ github.workspace }}
 
       - name: Post review comment
         if: github.event_name == 'pull_request' && steps.review.outputs.final-message != ''
