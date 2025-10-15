@@ -47,6 +47,10 @@ inputs:
     description: "Model the agent should use."
     required: false
     default: ""
+  effort:
+    description: "Reasoning effort the agent should use."
+    required: false
+    default: ""
   codex-home:
     description: "Directory to use as the Codex home directory. If empty, the default Codex home directory will be used."
     required: false
@@ -250,6 +254,7 @@ runs:
         CODEX_OUTPUT_SCHEMA: ${{ inputs['output-schema'] }}
         CODEX_OUTPUT_SCHEMA_FILE: ${{ inputs['output-schema-file'] }}
         CODEX_MODEL: ${{ inputs.model }}
+        CODEX_EFFORT: ${{ inputs.effort }}
         CODEX_SAFETY_STRATEGY: ${{ inputs['safety-strategy'] }}
         CODEX_USER: ${{ inputs['codex-user'] }}
         FORCE_COLOR: 1
@@ -266,5 +271,6 @@ runs:
             --output-schema-file "$CODEX_OUTPUT_SCHEMA_FILE" \
             --sandbox "$CODEX_SANDBOX" \
             --model "$CODEX_MODEL" \
+            --effort "$CODEX_EFFORT" \
             --safety-strategy "$CODEX_SAFETY_STRATEGY" \
             --codex-user "$CODEX_USER"
