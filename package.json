@@ -12,6 +12,7 @@
     "@octokit/graphql": "^8.2.2",
     "@octokit/rest": "^21.1.1",
     "commander": "14.0.1",
+    "pnpm": "^10.18.3",
     "string-argv": "0.3.2"
   },
   "devDependencies": {

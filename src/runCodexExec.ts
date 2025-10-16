@@ -203,6 +203,7 @@ async function finalizeExecution(
       ]);
     }
     setOutput("final-message", lastMessage);
+    setOutput("output-file-path", path.resolve(outputFile.file));
   } finally {
     await cleanupTempOutput(outputFile, runAsUser);
   }
