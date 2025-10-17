@@ -106,11 +106,6 @@ runs:
           exit 1
         fi
 
-    - name: Ensure Node.js available
-      uses: actions/setup-node@v4
-      with:
-        node-version: "24"
-
     - name: Check repository write access
       env:
         GITHUB_TOKEN: ${{ github.token }}
