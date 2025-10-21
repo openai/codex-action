@@ -103,6 +103,7 @@ jobs:
 | `output-schema`      | Inline schema contents written to a temp file and passed to `codex exec --output-schema`. Mutually exclusive with `output-schema-file`. | `""`        |
 | `output-schema-file` | Schema file forwarded to `codex exec --output-schema`. Leave empty to skip passing the option.                                          | `""`        |
 | `model`              | Model the agent should use. Leave empty to let Codex pick its default.                                                                  | `""`        |
+| `effort`             | Reasoning effort the agent should use. Leave empty to let Codex pick its default.                                                       | `""`        |
 | `codex-home`         | Directory to use as the Codex CLI home (config/cache). Uses the CLI default when empty.                                                 | `""`        |
 | `safety-strategy`    | Controls how the action restricts Codex privileges. See [Safety strategy](#safety-strategy).                                            | `drop-sudo` |
 | `codex-user`         | Username to run Codex as when `safety-strategy` is `unprivileged-user`.                                                                 | `""`        |

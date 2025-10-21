@@ -151,6 +151,7 @@ export async function main() {
       "Sandbox mode override to pass to `codex exec`."
     )
     .requiredOption("--model <model>", "Model the agent should use")
+    .requiredOption("--effort <effort>", "Reasoning effort the agent should use")
     .requiredOption(
       "--safety-strategy <strategy>",
       "Safety strategy to use. One of 'drop-sudo', 'read-only', 'unprivileged-user', or 'unsafe'."
@@ -171,6 +172,7 @@ export async function main() {
         outputSchema: string;
         sandbox: string;
         model: string;
+        effort: string;
         safetyStrategy: string;
         codexUser: string;
       }) => {
@@ -185,6 +187,7 @@ export async function main() {
           outputSchemaFile,
           sandbox,
           model,
+          effort,
           safetyStrategy,
           codexUser,
         } = options;
@@ -244,6 +247,7 @@ export async function main() {
           outputSchema: outputSchemaSource,
           sandbox: toSandboxMode(sandbox),
           model: emptyAsNull(model),
+          effort: emptyAsNull(effort),
           safetyStrategy: toSafetyStrategy(safetyStrategy),
           codexUser: emptyAsNull(codexUser),
         });
