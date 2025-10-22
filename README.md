@@ -57,6 +57,7 @@ jobs:
             Head SHA: ${{ github.event.pull_request.head.sha }}
 
             Review ONLY the changes introduced by the PR.
+            Use merge-base comparison (three-dot) to see the PR changes.
             Suggest any improvements, potential bugs, or issues.
             Be concise and specific in your feedback.
 
