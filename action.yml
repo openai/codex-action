@@ -18,6 +18,10 @@ inputs:
     description: "OpenAI API key used by Codex."
     required: false
     default: ""
+  codex-auth-json-b64:
+    description: "Base64-encoded contents of Codex auth.json (ChatGPT subscription auth)."
+    required: false
+    default: ""
   working-directory:
     description: "Working directory that Codex should use. Defaults to the repository root."
     required: false
@@ -145,6 +149,17 @@ runs:
         server_info_file="${{ steps.resolve_home.outputs.codex-home }}/${{ github.run_id }}.json"
         echo "server_info_file=$server_info_file" >> "$GITHUB_OUTPUT"
 
+    - name: Check server info file presence
+      id: check_server_info
+      shell: bash
+      run: |
+        server_info_file="${{ steps.derive_server_info.outputs.server_info_file }}"
+        if [ -s "$server_info_file" ]; then
+          echo "exists=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Check Responses API proxy status
       id: start_proxy
       if: ${{ inputs['openai-api-key'] != '' }}
@@ -157,6 +172,17 @@ runs:
         else
           echo "server_info_file_exists=false" >> "$GITHUB_OUTPUT"
         fi
+
+    - name: Write Codex auth.json (subscription auth)
+      if: ${{ inputs['codex-auth-json-b64'] != '' }}
+      env:
+        CODEX_AUTH_JSON_B64: ${{ inputs['codex-auth-json-b64'] }}
+      shell: bash
+      run: |
+        node "${{ github.action_path }}/dist/main.js" write-auth-json \
+          --codex-home "${{ steps.resolve_home.outputs.codex-home }}" \
+          --safety-strategy "${{ inputs['safety-strategy'] }}" \
+          --codex-user "${{ inputs['codex-user'] }}"
 
     # This is its own step to minimize the runtime logic that has access to the
     # API key. Note we use `env -u OPENAI_API_KEY` to ensure extra copies of the
@@ -196,7 +222,7 @@ runs:
     # This step has an output named `port`.
     - name: Read server info
       id: read_server_info
-      if: ${{ inputs['openai-api-key'] != '' || inputs.prompt != '' || inputs['prompt-file'] != '' }}
+      if: ${{ inputs['openai-api-key'] != '' || steps.check_server_info.outputs.exists == 'true' }}
       shell: bash
       run: node "${{ github.action_path }}/dist/main.js" read-server-info "${{ steps.derive_server_info.outputs.server_info_file }}"
 
@@ -210,7 +236,7 @@ runs:
           --safety-strategy "${{ inputs['safety-strategy'] }}"
 
     - name: Drop sudo privilege, if appropriate
-      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' }}
+      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && (inputs['openai-api-key'] != '' || inputs['codex-auth-json-b64'] != '') }}
       shell: bash
       run: |
         case "${RUNNER_OS}" in
@@ -227,7 +253,7 @@ runs:
         esac
 
     - name: Verify sudo privilege removed
-      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' }}
+      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && (inputs['openai-api-key'] != '' || inputs['codex-auth-json-b64'] != '') }}
       shell: bash
       run: |
         if sudo -n true 2>/dev/null; then
