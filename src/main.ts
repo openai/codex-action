@@ -353,8 +353,8 @@ function resolveProviderConfig({
       };
     }
     case "azure-openai": {
-      const baseUrl = emptyAsNull(azureBaseUrl ?? "");
-      if (baseUrl == null) {
+      const rawBaseUrl = emptyAsNull(azureBaseUrl ?? "");
+      if (rawBaseUrl == null) {
         throw new Error(
           "The --azure-base-url option must be provided when configuring the Azure provider."
         );
@@ -369,7 +369,7 @@ function resolveProviderConfig({
         emptyAsNull(azureEnvKey ?? "") ?? "AZURE_OPENAI_API_KEY";
       return {
         type: "azure-openai",
-        baseUrl,
+        baseUrl: normalizeAzureBaseUrl(rawBaseUrl),
         apiVersion,
         envKey,
       };
@@ -387,6 +387,23 @@ function parseIntStrict(value: string): number {
     throw new Error(`Invalid integer: ${value}`);
   }
   return parsed;
+}
+
+function normalizeAzureBaseUrl(raw: string): string {
+  let base = raw.trim();
+  if (base.length === 0) {
+    throw new Error("Azure base URL must not be empty.");
+  }
+
+  // Remove trailing slash to avoid duplicating when we append /openai.
+  if (base.endsWith("/")) {
+    base = base.slice(0, -1);
+  }
+
+  if (!base.toLowerCase().endsWith("/openai")) {
+    base = `${base}/openai`;
+  }
+  return base;
 }
 
 function parseExtraArgs(value: string): Array<string> {

@@ -94,7 +94,7 @@ jobs:
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
 | `openai-api-key`     | Secret used to start the Responses API proxy. Required when starting the proxy (key-only or key+prompt). Store it in `secrets`.         | `""`        |
 | `azure-openai-api-key` | Secret used when calling Azure OpenAI directly. Required when running against Azure. Store it in `secrets`.                         | `""`        |
-| `azure-openai-endpoint` | Azure OpenAI endpoint base URL (for example: `https://example.openai.azure.com/openai`). Required when using the Azure key.       | `""`        |
+| `azure-openai-endpoint` | Azure OpenAI endpoint base URL (for example: `https://example.openai.azure.com/`). The action will append `/openai` if missing.   | `""`        |
 | `azure-openai-api-version` | Azure OpenAI API version (for example: `2025-04-01-preview`). Required when using the Azure key.                               | `""`        |
 | `azure-openai-env-key` | Environment variable name that should hold the Azure OpenAI API key before invoking Codex.                                         | `"AZURE_OPENAI_API_KEY"` |
 | `prompt`             | Inline prompt text. Provide this or `prompt-file`.                                                                                      | `""`        |
@@ -118,7 +118,7 @@ jobs:
 When you supply the Azure inputs, the action skips starting the Responses API proxy and instead writes a Codex CLI configuration that points directly at your Azure endpoint. Provide:
 
 - `azure-openai-api-key`: the key stored in `secrets`.
-- `azure-openai-endpoint`: the base URL for your resource (usually ends with `/openai`).
+- `azure-openai-endpoint`: the base URL for your resource (you can use the root such as `https://example.openai.azure.com/`; the action appends `/openai` if needed).
 - `azure-openai-api-version`: the REST API version you want to call.
 
 Codex still needs a deployment name, so set the action's `model` input to your Azure deployment ID (for example `gpt-4o-mini`). You can change the environment variable used to inject the key by overriding `azure-openai-env-key`; the default is `AZURE_OPENAI_API_KEY`.
