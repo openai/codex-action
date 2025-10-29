@@ -18,6 +18,22 @@ inputs:
     description: "OpenAI API key used by Codex."
     required: false
     default: ""
+  azure-openai-api-key:
+    description: "Azure OpenAI API key used by Codex."
+    required: false
+    default: ""
+  azure-openai-endpoint:
+    description: "Azure OpenAI endpoint base URL (for example: https://example.openai.azure.com/openai)."
+    required: false
+    default: ""
+  azure-openai-api-version:
+    description: "Azure OpenAI API version (for example: 2025-04-01-preview)."
+    required: false
+    default: ""
+  azure-openai-env-key:
+    description: "Environment variable name that should hold the Azure OpenAI API key (defaults to AZURE_OPENAI_API_KEY)."
+    required: false
+    default: "AZURE_OPENAI_API_KEY"
   working-directory:
     description: "Working directory that Codex should use. Defaults to the repository root."
     required: false
@@ -145,9 +161,39 @@ runs:
         server_info_file="${{ steps.resolve_home.outputs.codex-home }}/${{ github.run_id }}.json"
         echo "server_info_file=$server_info_file" >> "$GITHUB_OUTPUT"
 
+    - name: Determine model provider
+      id: determine_provider
+      shell: bash
+      run: |
+        openai_key="${{ inputs['openai-api-key'] }}"
+        azure_key="${{ inputs['azure-openai-api-key'] }}"
+        azure_endpoint="${{ inputs['azure-openai-endpoint'] }}"
+        azure_version="${{ inputs['azure-openai-api-version'] }}"
+        if [ -n "$openai_key" ] && [ -n "$azure_key" ]; then
+          echo "Provide only one of openai-api-key or azure-openai-api-key." >&2
+          exit 1
+        fi
+
+        provider="none"
+        if [ -n "$openai_key" ]; then
+          provider="openai-proxy"
+        elif [ -n "$azure_key" ]; then
+          provider="azure-openai"
+          if [ -z "$azure_endpoint" ]; then
+            echo "azure-openai-endpoint must be provided when using azure-openai-api-key." >&2
+            exit 1
+          fi
+          if [ -z "$azure_version" ]; then
+            echo "azure-openai-api-version must be provided when using azure-openai-api-key." >&2
+            exit 1
+          fi
+        fi
+
+        echo "provider=$provider" >> "$GITHUB_OUTPUT"
+
     - name: Check Responses API proxy status
       id: start_proxy
-      if: ${{ inputs['openai-api-key'] != '' }}
+      if: ${{ steps.determine_provider.outputs.provider == 'openai-proxy' }}
       shell: bash
       run: |
         server_info_file="${{ steps.derive_server_info.outputs.server_info_file }}"
@@ -163,7 +209,7 @@ runs:
     # key do not end up in the memory of the `codex-responses-api-proxy` process
     # where environment variables are stored.
     - name: Start Responses API proxy
-      if: ${{ inputs['openai-api-key'] != '' && steps.start_proxy.outputs.server_info_file_exists == 'false' }}
+      if: ${{ steps.determine_provider.outputs.provider == 'openai-proxy' && steps.start_proxy.outputs.server_info_file_exists == 'false' }}
       env:
         OPENAI_API_KEY: ${{ inputs['openai-api-key'] }}
       shell: bash
@@ -173,7 +219,7 @@ runs:
         ) &
 
     - name: Wait for Responses API proxy
-      if: ${{ inputs['openai-api-key'] != '' && steps.start_proxy.outputs.server_info_file_exists == 'false' }}
+      if: ${{ steps.determine_provider.outputs.provider == 'openai-proxy' && steps.start_proxy.outputs.server_info_file_exists == 'false' }}
       shell: bash
       run: |
         server_info_file="${{ steps.derive_server_info.outputs.server_info_file }}"
@@ -196,21 +242,40 @@ runs:
     # This step has an output named `port`.
     - name: Read server info
       id: read_server_info
-      if: ${{ inputs['openai-api-key'] != '' || inputs.prompt != '' || inputs['prompt-file'] != '' }}
+      if: ${{ steps.determine_provider.outputs.provider == 'openai-proxy' }}
       shell: bash
       run: node "${{ github.action_path }}/dist/main.js" read-server-info "${{ steps.derive_server_info.outputs.server_info_file }}"
 
     - name: Write Codex proxy config
-      if: ${{ inputs['openai-api-key'] != '' }}
+      if: ${{ steps.determine_provider.outputs.provider != 'none' }}
       shell: bash
       run: |
-        node "${{ github.action_path }}/dist/main.js" write-proxy-config \
-          --codex-home "${{ steps.resolve_home.outputs.codex-home }}" \
-          --port "${{ steps.read_server_info.outputs.port }}" \
-          --safety-strategy "${{ inputs['safety-strategy'] }}"
+        set -euo pipefail
+        provider="${{ steps.determine_provider.outputs.provider }}"
+        case "$provider" in
+          openai-proxy)
+            node "${{ github.action_path }}/dist/main.js" write-proxy-config \
+              --codex-home "${{ steps.resolve_home.outputs.codex-home }}" \
+              --safety-strategy "${{ inputs['safety-strategy'] }}" \
+              --provider openai-proxy \
+              --port "${{ steps.read_server_info.outputs.port }}"
+            ;;
+          azure-openai)
+            node "${{ github.action_path }}/dist/main.js" write-proxy-config \
+              --codex-home "${{ steps.resolve_home.outputs.codex-home }}" \
+              --safety-strategy "${{ inputs['safety-strategy'] }}" \
+              --provider azure-openai \
+              --azure-base-url "${{ inputs['azure-openai-endpoint'] }}" \
+              --azure-api-version "${{ inputs['azure-openai-api-version'] }}" \
+              --azure-env-key "${{ inputs['azure-openai-env-key'] }}"
+            ;;
+          *)
+            echo "No model provider configured; skipping Codex config write."
+            ;;
+        esac
 
     - name: Drop sudo privilege, if appropriate
-      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' }}
+      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && steps.determine_provider.outputs.provider != 'none' }}
       shell: bash
       run: |
         case "${RUNNER_OS}" in
@@ -227,7 +292,7 @@ runs:
         esac
 
     - name: Verify sudo privilege removed
-      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' }}
+      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && steps.determine_provider.outputs.provider != 'none' }}
       shell: bash
       run: |
         if sudo -n true 2>/dev/null; then
@@ -252,9 +317,15 @@ runs:
         CODEX_MODEL: ${{ inputs.model }}
         CODEX_SAFETY_STRATEGY: ${{ inputs['safety-strategy'] }}
         CODEX_USER: ${{ inputs['codex-user'] }}
+        CODEX_PROVIDER: ${{ steps.determine_provider.outputs.provider }}
+        CODEX_AZURE_API_KEY: ${{ inputs['azure-openai-api-key'] }}
+        CODEX_AZURE_ENV_KEY: ${{ inputs['azure-openai-env-key'] }}
         FORCE_COLOR: 1
       shell: bash
       run: |
+        if [ "$CODEX_PROVIDER" = "azure-openai" ] && [ -n "$CODEX_AZURE_API_KEY" ]; then
+          export "$CODEX_AZURE_ENV_KEY"="$CODEX_AZURE_API_KEY"
+        fi
         node "${{ github.action_path }}/dist/main.js" run-codex-exec \
             --prompt "${CODEX_PROMPT}" \
             --prompt-file "${CODEX_PROMPT_FILE}" \

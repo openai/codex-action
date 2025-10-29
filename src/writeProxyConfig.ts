@@ -4,12 +4,25 @@ import * as os from "node:os";
 import { SafetyStrategy } from "./runCodexExec";
 import { checkOutput } from "./checkOutput";
 
-const MODEL_PROVIDER = "openai-proxy";
+const OPENAI_PROXY_PROVIDER = "openai-proxy";
+const AZURE_PROVIDER = "azure-openai";
+
+export type ProviderConfig =
+  | {
+      type: "openai-proxy";
+      port: number;
+    }
+  | {
+      type: "azure-openai";
+      baseUrl: string;
+      apiVersion: string;
+      envKey: string;
+    };
 
 export async function writeProxyConfig(
   codexHome: string,
-  port: number,
-  safetyStrategy: SafetyStrategy
+  safetyStrategy: SafetyStrategy,
+  provider: ProviderConfig
 ): Promise<void> {
   const configPath = path.join(codexHome, "config.toml");
 
@@ -20,26 +33,10 @@ export async function writeProxyConfig(
     existing = "";
   }
 
-  const header = `# Added by codex-action.
-model_provider = "${MODEL_PROVIDER}"
-
-
-`;
-  const table = `
-
-# Added by codex-action.
-[model_providers.${MODEL_PROVIDER}]
-name = "OpenAI Proxy"
-base_url = "http://127.0.0.1:${port}/v1"
-wire_api = "responses"
-`;
-
-  // Prepend model_provider at the very top.
-  let output = `${header}${existing}${table}`;
+  const { header, table } = renderProviderConfig(provider);
+  const output = `${header}${existing}${table}`;
 
   if (safetyStrategy === "unprivileged-user") {
-    // We know we have already created the CODEX_HOME directory, but it is owned
-    // by another user, so we need to use sudo to write the file.
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-config"));
     try {
       const tempConfigPath = path.join(tempDir, "config.toml");
@@ -51,5 +48,47 @@ wire_api = "responses"
   } else {
     await fs.mkdir(codexHome, { recursive: true });
     await fs.writeFile(configPath, output, "utf8");
+  }
+}
+
+function renderProviderConfig(provider: ProviderConfig): {
+  header: string;
+  table: string;
+} {
+  switch (provider.type) {
+    case "openai-proxy": {
+      const header = `# Added by codex-action.
+model_provider = "${OPENAI_PROXY_PROVIDER}"
+
+
+`;
+      const table = `
+
+# Added by codex-action.
+[model_providers.${OPENAI_PROXY_PROVIDER}]
+name = "OpenAI Proxy"
+base_url = "http://127.0.0.1:${provider.port}/v1"
+wire_api = "responses"
+`;
+      return { header, table };
+    }
+    case "azure-openai": {
+      const header = `# Added by codex-action.
+model_provider = "${AZURE_PROVIDER}"
+
+
+`;
+      const table = `
+
+# Added by codex-action.
+[model_providers.${AZURE_PROVIDER}]
+name = "Azure OpenAI"
+base_url = "${provider.baseUrl}"
+env_key = "${provider.envKey}"
+wire_api = "responses"
+query_params = { api-version = "${provider.apiVersion}" }
+`;
+      return { header, table };
+    }
   }
 }
