@@ -15,7 +15,7 @@ import {
 import { dropSudo } from "./dropSudo";
 import { ensureActorHasWriteAccess } from "./checkActorPermissions";
 import parseArgsStringToArgv from "string-argv";
-import { writeProxyConfig } from "./writeProxyConfig";
+import { writeProxyConfig, ProviderConfig } from "./writeProxyConfig";
 import { checkOutput } from "./checkOutput";
 
 export async function main() {
@@ -80,19 +80,50 @@ export async function main() {
       "Write the OpenAI Proxy model provider config into CODEX_HOME/config.toml"
     )
     .requiredOption("--codex-home <DIRECTORY>", "Path to Codex home directory")
-    .requiredOption("--port <port>", "Proxy server port", parseIntStrict)
     .requiredOption(
       "--safety-strategy <strategy>",
       "Safety strategy to use. One of 'drop-sudo', 'read-only', 'unprivileged-user', or 'unsafe'."
     )
+    .addOption(
+      new Option(
+        "--provider <provider>",
+        "Model provider to configure. One of 'openai-proxy' or 'azure-openai'."
+      ).default("openai-proxy")
+    )
+    .option("--port <port>", "Proxy server port", parseIntStrict)
+    .option(
+      "--azure-base-url <URL>",
+      "Azure OpenAI endpoint base URL (for example: https://example.openai.azure.com/openai)"
+    )
+    .option(
+      "--azure-api-version <VERSION>",
+      "Azure OpenAI API version (for example: 2025-04-01-preview)"
+    )
+    .addOption(
+      new Option(
+        "--azure-env-key <NAME>",
+        "Environment variable name that will hold the Azure API key."
+      ).default("AZURE_OPENAI_API_KEY")
+    )
     .action(
       async (options: {
         codexHome: string;
-        port: number;
         safetyStrategy: string;
+        provider: string;
+        port?: number;
+        azureBaseUrl?: string;
+        azureApiVersion?: string;
+        azureEnvKey?: string;
       }) => {
         const safetyStrategy = toSafetyStrategy(options.safetyStrategy);
-        await writeProxyConfig(options.codexHome, options.port, safetyStrategy);
+        const providerConfig = resolveProviderConfig({
+          provider: options.provider,
+          port: options.port,
+          azureBaseUrl: options.azureBaseUrl,
+          azureApiVersion: options.azureApiVersion,
+          azureEnvKey: options.azureEnvKey,
+        });
+        await writeProxyConfig(options.codexHome, safetyStrategy, providerConfig);
       }
     );
 
@@ -293,6 +324,61 @@ export async function main() {
     );
 
   program.parse();
+}
+
+function resolveProviderConfig({
+  provider,
+  port,
+  azureBaseUrl,
+  azureApiVersion,
+  azureEnvKey,
+}: {
+  provider: string;
+  port?: number;
+  azureBaseUrl?: string;
+  azureApiVersion?: string;
+  azureEnvKey?: string;
+}): ProviderConfig {
+  const normalizedProvider = provider.trim();
+  switch (normalizedProvider) {
+    case "openai-proxy": {
+      if (port == null || Number.isNaN(port)) {
+        throw new Error(
+          "The --port option must be provided when configuring the OpenAI proxy provider."
+        );
+      }
+      return {
+        type: "openai-proxy",
+        port,
+      };
+    }
+    case "azure-openai": {
+      const baseUrl = emptyAsNull(azureBaseUrl ?? "");
+      if (baseUrl == null) {
+        throw new Error(
+          "The --azure-base-url option must be provided when configuring the Azure provider."
+        );
+      }
+      const apiVersion = emptyAsNull(azureApiVersion ?? "");
+      if (apiVersion == null) {
+        throw new Error(
+          "The --azure-api-version option must be provided when configuring the Azure provider."
+        );
+      }
+      const envKey =
+        emptyAsNull(azureEnvKey ?? "") ?? "AZURE_OPENAI_API_KEY";
+      return {
+        type: "azure-openai",
+        baseUrl,
+        apiVersion,
+        envKey,
+      };
+    }
+    default:
+      throw new Error(
+        `Unsupported provider '${normalizedProvider}'. Expected 'openai-proxy' or 'azure-openai'.`
+      );
+  }
 }
 
 function parseIntStrict(value: string): number {

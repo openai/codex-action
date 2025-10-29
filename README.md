@@ -2,7 +2,7 @@
 
 Run [Codex](https://github.com/openai/codex#codex-exec) from a GitHub Actions workflow while keeping tight control over the privileges available to Codex. This action handles installing the Codex CLI and configuring it with a secure proxy to the [Responses API](https://platform.openai.com/docs/api-reference/responses).
 
-Users must provide their [`OPENAI_API_KEY`](https://platform.openai.com/api-keys) as a [GitHub Actions secret](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets) to use this action.
+Provide credentials for the model provider you plan to use. Most workflows will supply [`openai-api-key`](#inputs) with their [`OPENAI_API_KEY`](https://platform.openai.com/api-keys) stored as a [GitHub Actions secret](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets). If you run against [Azure OpenAI](https://learn.microsoft.com/azure/ai-services/openai/), pass the Azure inputs instead (`azure-openai-api-key`, `azure-openai-endpoint`, and `azure-openai-api-version`).
 
 ## Example: Create Your Own Pull Request Bot
 
@@ -93,6 +93,10 @@ jobs:
 | Name                 | Description                                                                                                                             | Default     |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
 | `openai-api-key`     | Secret used to start the Responses API proxy. Required when starting the proxy (key-only or key+prompt). Store it in `secrets`.         | `""`        |
+| `azure-openai-api-key` | Secret used when calling Azure OpenAI directly. Required when running against Azure. Store it in `secrets`.                         | `""`        |
+| `azure-openai-endpoint` | Azure OpenAI endpoint base URL (for example: `https://example.openai.azure.com/openai`). Required when using the Azure key.       | `""`        |
+| `azure-openai-api-version` | Azure OpenAI API version (for example: `2025-04-01-preview`). Required when using the Azure key.                               | `""`        |
+| `azure-openai-env-key` | Environment variable name that should hold the Azure OpenAI API key before invoking Codex.                                         | `"AZURE_OPENAI_API_KEY"` |
 | `prompt`             | Inline prompt text. Provide this or `prompt-file`.                                                                                      | `""`        |
 | `prompt-file`        | Path (relative to the repository root) of a file that contains the prompt. Provide this or `prompt`.                                    | `""`        |
 | `output-file`        | File where the final Codex message is written. Leave empty to skip writing a file.                                                      | `""`        |
@@ -108,6 +112,18 @@ jobs:
 | `codex-user`         | Username to run Codex as when `safety-strategy` is `unprivileged-user`.                                                                 | `""`        |
 | `allow-users`        | List of GitHub usernames who can trigger the action in addition to those who have write access to the repo.                             | ""          |
 | `allow-bots`         | Allow runs triggered by GitHub Apps/bot accounts to bypass the write-access check.                                                      | "false"     |
+
+### Using Azure OpenAI
+
+When you supply the Azure inputs, the action skips starting the Responses API proxy and instead writes a Codex CLI configuration that points directly at your Azure endpoint. Provide:
+
+- `azure-openai-api-key`: the key stored in `secrets`.
+- `azure-openai-endpoint`: the base URL for your resource (usually ends with `/openai`).
+- `azure-openai-api-version`: the REST API version you want to call.
+
+Codex still needs a deployment name, so set the action's `model` input to your Azure deployment ID (for example `gpt-4o-mini`). You can change the environment variable used to inject the key by overriding `azure-openai-env-key`; the default is `AZURE_OPENAI_API_KEY`.
+
+Only one provider can be configured per run—if you pass both OpenAI and Azure secrets the action fails fast so you can fix the workflow configuration.
 
 ## Safety Strategy
 
