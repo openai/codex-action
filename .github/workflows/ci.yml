@@ -35,8 +35,9 @@ jobs:
 
       - name: Ensure dist matches bundled output
         run: |
-          if [[ -n "$(git status --porcelain dist)" ]]; then
+          status_output="$(git status --short -- dist)"
+          if [[ -n "$status_output" ]]; then
             echo '::error::Detected modified files in dist/ after running pnpm run build. Please rebuild locally and commit the updated bundles.'
-            git --no-pager diff dist
+            echo "$status_output"
             exit 1
           fi
