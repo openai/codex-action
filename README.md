@@ -2,7 +2,7 @@
 
 Run [Codex](https://github.com/openai/codex#codex-exec) from a GitHub Actions workflow while keeping tight control over the privileges available to Codex. This action handles installing the Codex CLI and configuring it with a secure proxy to the [Responses API](https://platform.openai.com/docs/api-reference/responses).
 
-Users must provide their [`OPENAI_API_KEY`](https://platform.openai.com/api-keys) as a [GitHub Actions secret](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets) to use this action.
+Users must provide an API key for their chosen provider (for example, [`OPENAI_API_KEY`](https://platform.openai.com/api-keys) or `AZURE_OPENAI_API_KEY`) as a [GitHub Actions secret](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets) to use this action.
 
 ## Example: Create Your Own Pull Request Bot
 
@@ -92,7 +92,10 @@ jobs:
 
 | Name                 | Description                                                                                                                             | Default     |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
-| `openai-api-key`     | Secret used to start the Responses API proxy. Required when starting the proxy (key-only or key+prompt). Store it in `secrets`.         | `""`        |
+| `openai-api-key`     | Secret used to start the Responses API proxy when `model-provider` is `openai`. Store it in `secrets`.                                 | `""`        |
+| `model-provider`     | Select the upstream provider: `openai` (default) or `azure`.                                                                            | `"openai"`  |
+| `azure-api-key` | Secret used to start the Responses API proxy when `model-provider` is `azure`. Store it in `secrets`.                                 | `""`        |
+| `azure-url` | Full Azure Responses API URL, e.g. `https://example.openai.azure.com/openai/deployments/my-deployment/responses?api-version=2025-04-01-preview`. Required when `model-provider` is `azure`. | `""`        |
 | `prompt`             | Inline prompt text. Provide this or `prompt-file`.                                                                                      | `""`        |
 | `prompt-file`        | Path (relative to the repository root) of a file that contains the prompt. Provide this or `prompt`.                                    | `""`        |
 | `output-file`        | File where the final Codex message is written. Leave empty to skip writing a file.                                                      | `""`        |
@@ -145,6 +148,7 @@ jobs:
 ## Additional tips
 
 - Run this action after `actions/checkout@v5` so Codex has access to your repository contents.
+- To use Azure OpenAI, set `model-provider: azure`, supply `azure-api-key`, and point `azure-url` at your deployment’s Responses endpoint.
 - If you want Codex to have access to a narrow set of privileged functionality, consider running a local MCP server that can perform these actions and configure Codex to use it.
 - If you need more control over the CLI invocation, pass flags through `codex-args` or create a `config.toml` in `codex-home`.
 - Once `openai/codex-action` is run once with `openai-api-key`, you can also call `codex` from subsequent scripts in your job. (You can omit `prompt` and `prompt-file` from the action in this case.)
