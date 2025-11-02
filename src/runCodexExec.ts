@@ -138,6 +138,9 @@ export async function runCodexExec({
   command.push("--sandbox", sandboxMode);
 
   const env = { ...process.env };
+  if (!env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE) {
+    env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE = "codex_github_action";
+  }
   let extraEnv = "";
   if (codexHome != null) {
     env.CODEX_HOME = codexHome;
