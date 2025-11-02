@@ -44,6 +44,7 @@ export async function runCodexExec({
   explicitOutputFile,
   outputSchema,
   model,
+  effort,
   safetyStrategy,
   codexUser,
   sandbox,
@@ -55,6 +56,7 @@ export async function runCodexExec({
   explicitOutputFile: string | null;
   outputSchema: OutputSchemaSource | null;
   model: string | null;
+  effort: string | null;
   safetyStrategy: SafetyStrategy;
   codexUser: string | null;
   sandbox: SandboxMode;
@@ -133,6 +135,12 @@ export async function runCodexExec({
     command.push("--model", model);
   }
 
+  if (effort != null) {
+    // https://github.com/openai/codex/blob/00debb6399eb51c4b9273f0bc012912c42fe6c91/docs/config.md#config
+    // https://github.com/openai/codex/blob/00debb6399eb51c4b9273f0bc012912c42fe6c91/docs/config.md#model_reasoning_effort
+    command.push("--config", `model_reasoning_effort="${effort}"`);
+  }
+
   command.push(...extraArgs);
 
   command.push("--sandbox", sandboxMode);
@@ -192,7 +200,6 @@ async function finalizeExecution(
     let lastMessage: string;
     if (runAsUser == null) {
       lastMessage = await readFile(outputFile.file, "utf8");
-      setOutput("final-message", lastMessage);
     } else {
       lastMessage = await checkOutput([
         "sudo",
