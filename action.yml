@@ -18,6 +18,14 @@ inputs:
     description: "OpenAI API key used by Codex."
     required: false
     default: ""
+  azure-api-key:
+    description: "Azure OpenAI API key. When provided, the action targets Azure instead of OpenAI."
+    required: false
+    default: ""
+  azure-url:
+    description: "Full Azure Responses API URL, e.g. https://example.openai.azure.com/openai/deployments/<deployment>/responses?api-version=2025-04-01-preview. Required when azure-api-key is set."
+    required: false
+    default: ""
   working-directory:
     description: "Working directory that Codex should use. Defaults to the repository root."
     required: false
@@ -151,9 +159,42 @@ runs:
         server_info_file="${{ steps.resolve_home.outputs.codex-home }}/${{ github.run_id }}.json"
         echo "server_info_file=$server_info_file" >> "$GITHUB_OUTPUT"
 
+    - name: Determine proxy configuration
+      id: proxy_config
+      shell: bash
+      run: |
+        provider="openai"
+        should_start="false"
+        upstream_url=""
+        auth_style="bearer"
+
+        azure_api_key="${{ inputs['azure-api-key'] }}"
+        if [ -n "$azure_api_key" ]; then
+          provider="azure"
+          upstream_url="${{ inputs['azure-url'] }}"
+          if [ -z "$upstream_url" ]; then
+            echo "::error::'azure-url' must be provided when 'azure-api-key' is set." >&2
+            exit 1
+          fi
+          should_start="true"
+          auth_style="api-key"
+        else
+          api_key="${{ inputs['openai-api-key'] }}"
+          if [ -n "$api_key" ]; then
+            should_start="true"
+            upstream_url="https://api.openai.com/v1/responses"
+            auth_style="bearer"
+          fi
+        fi
+
+        printf 'provider=%s\n' "$provider" >>"$GITHUB_OUTPUT"
+        printf 'should_start=%s\n' "$should_start" >>"$GITHUB_OUTPUT"
+        printf 'upstream_url=%s\n' "$upstream_url" >>"$GITHUB_OUTPUT"
+        printf 'auth_style=%s\n' "$auth_style" >>"$GITHUB_OUTPUT"
+
     - name: Check Responses API proxy status
       id: start_proxy
-      if: ${{ inputs['openai-api-key'] != '' }}
+      if: ${{ steps.proxy_config.outputs.should_start == 'true' }}
       shell: bash
       run: |
         server_info_file="${{ steps.derive_server_info.outputs.server_info_file }}"
@@ -165,21 +206,31 @@ runs:
         fi
 
     # This is its own step to minimize the runtime logic that has access to the
-    # API key. Note we use `env -u OPENAI_API_KEY` to ensure extra copies of the
-    # key do not end up in the memory of the `codex-responses-api-proxy` process
-    # where environment variables are stored.
+    # API key. Note we use `env -u PROXY_API_KEY` to ensure extra copies of the
+    # key do not end up in the memory of the `codex-responses-api-proxy`
+    # process where environment variables are stored.
     - name: Start Responses API proxy
-      if: ${{ inputs['openai-api-key'] != '' && steps.start_proxy.outputs.server_info_file_exists == 'false' }}
-      env:
-        OPENAI_API_KEY: ${{ inputs['openai-api-key'] }}
+      if: ${{ steps.proxy_config.outputs.should_start == 'true' && steps.start_proxy.outputs.server_info_file_exists == 'false' }}
       shell: bash
       run: |
+        upstream_url="${{ steps.proxy_config.outputs.upstream_url }}"
+        auth_style="${{ steps.proxy_config.outputs.auth_style }}"
+        proxy_api_key="${{ steps.proxy_config.outputs.provider == 'azure' && inputs['azure-api-key'] || inputs['openai-api-key'] }}"
+
+        args=(
+          codex-responses-api-proxy
+          --http-shutdown
+          --server-info "${{ steps.derive_server_info.outputs.server_info_file }}"
+          --upstream-url "$upstream_url"
+          --auth-style "$auth_style"
+        )
+
         (
-          printenv OPENAI_API_KEY | env -u OPENAI_API_KEY codex-responses-api-proxy --http-shutdown --server-info "${{ steps.derive_server_info.outputs.server_info_file }}"
+          printf '%s' "$proxy_api_key" | env -u proxy_api_key "${args[@]}"
         ) &
 
     - name: Wait for Responses API proxy
-      if: ${{ inputs['openai-api-key'] != '' && steps.start_proxy.outputs.server_info_file_exists == 'false' }}
+      if: ${{ steps.proxy_config.outputs.should_start == 'true' && steps.start_proxy.outputs.server_info_file_exists == 'false' }}
       shell: bash
       run: |
         server_info_file="${{ steps.derive_server_info.outputs.server_info_file }}"
@@ -202,12 +253,12 @@ runs:
     # This step has an output named `port`.
     - name: Read server info
       id: read_server_info
-      if: ${{ inputs['openai-api-key'] != '' || inputs.prompt != '' || inputs['prompt-file'] != '' }}
+      if: ${{ steps.proxy_config.outputs.should_start == 'true' || inputs.prompt != '' || inputs['prompt-file'] != '' }}
       shell: bash
       run: node "${{ github.action_path }}/dist/main.js" read-server-info "${{ steps.derive_server_info.outputs.server_info_file }}"
 
     - name: Write Codex proxy config
-      if: ${{ inputs['openai-api-key'] != '' }}
+      if: ${{ steps.proxy_config.outputs.should_start == 'true' }}
       shell: bash
       run: |
         node "${{ github.action_path }}/dist/main.js" write-proxy-config \
@@ -216,7 +267,7 @@ runs:
           --safety-strategy "${{ inputs['safety-strategy'] }}"
 
     - name: Drop sudo privilege, if appropriate
-      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' }}
+      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && steps.proxy_config.outputs.should_start == 'true' }}
       shell: bash
       run: |
         case "${RUNNER_OS}" in
@@ -233,7 +284,7 @@ runs:
         esac
 
     - name: Verify sudo privilege removed
-      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' }}
+      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && steps.proxy_config.outputs.should_start == 'true' }}
       shell: bash
       run: |
         if sudo -n true 2>/dev/null; then

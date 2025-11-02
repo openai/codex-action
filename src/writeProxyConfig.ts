@@ -4,7 +4,7 @@ import * as os from "node:os";
 import { SafetyStrategy } from "./runCodexExec";
 import { checkOutput } from "./checkOutput";
 
-const MODEL_PROVIDER = "openai-proxy";
+const MODEL_PROVIDER = "responses-proxy";
 
 export async function writeProxyConfig(
   codexHome: string,
@@ -29,7 +29,7 @@ model_provider = "${MODEL_PROVIDER}"
 
 # Added by codex-action.
 [model_providers.${MODEL_PROVIDER}]
-name = "OpenAI Proxy"
+name = "Responses Proxy"
 base_url = "http://127.0.0.1:${port}/v1"
 wire_api = "responses"
 `;
