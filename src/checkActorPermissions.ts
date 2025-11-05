@@ -103,7 +103,13 @@ export async function ensureActorHasWriteAccess(
     };
   }
 
-  const octokit = options.octokit ?? new Octokit({ auth: token });
+  const baseUrl = process.env.GITHUB_API_URL?.trim();
+  const octokit =
+    options.octokit ??
+    new Octokit({
+      auth: token,
+      ...(baseUrl ? { baseUrl } : {}),
+    });
 
   core.info(`Checking write access for actor '${actor}' on ${owner}/${repo}`);
 
