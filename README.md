@@ -169,6 +169,10 @@ Ultimately, your configured Action might look something like the following:
     prompt: "Debug all the things."
 ```
 
+## Version History
+
+See the [`CHANGELOG`](./CHANGELOG.md) for details.
+
 ## License
 
 This project is licensed under the [Apache License 2.0](./LICENSE).
