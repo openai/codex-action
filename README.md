@@ -2,7 +2,7 @@
 
 Run [Codex](https://github.com/openai/codex#codex-exec) from a GitHub Actions workflow while keeping tight control over the privileges available to Codex. This action handles installing the Codex CLI and configuring it with a secure proxy to the [Responses API](https://platform.openai.com/docs/api-reference/responses).
 
-Users must provide their [`OPENAI_API_KEY`](https://platform.openai.com/api-keys) as a [GitHub Actions secret](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets) to use this action.
+Users must provide an API key for their chosen provider (for example, [`OPENAI_API_KEY`](https://platform.openai.com/api-keys) or `AZURE_OPENAI_API_KEY` [if using Azure for OpenAI models](#azure)) as a [GitHub Actions secret](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets) to use this action.
 
 ## Example: Create Your Own Pull Request Bot
 
@@ -90,25 +90,26 @@ jobs:
 
 ## Inputs
 
-| Name                 | Description                                                                                                                             | Default     |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
-| `openai-api-key`     | Secret used to start the Responses API proxy. Required when starting the proxy (key-only or key+prompt). Store it in `secrets`.         | `""`        |
-| `prompt`             | Inline prompt text. Provide this or `prompt-file`.                                                                                      | `""`        |
-| `prompt-file`        | Path (relative to the repository root) of a file that contains the prompt. Provide this or `prompt`.                                    | `""`        |
-| `output-file`        | File where the final Codex message is written. Leave empty to skip writing a file.                                                      | `""`        |
-| `working-directory`  | Directory passed to `codex exec --cd`. Defaults to the repository root.                                                                 | `""`        |
-| `sandbox`            | Sandbox mode for Codex. One of `workspace-write` (default), `read-only` or `danger-full-access`.                                        | `""`        |
-| `codex-version`      | Version of `@openai/codex` to install.                                                                                                  | `""`        |
-| `codex-args`         | Extra arguments forwarded to `codex exec`. Accepts JSON arrays (`["--flag", "value"]`) or shell-style strings.                          | `""`        |
-| `output-schema`      | Inline schema contents written to a temp file and passed to `codex exec --output-schema`. Mutually exclusive with `output-schema-file`. | `""`        |
-| `output-schema-file` | Schema file forwarded to `codex exec --output-schema`. Leave empty to skip passing the option.                                          | `""`        |
-| `model`              | Model the agent should use. Leave empty to let Codex pick its default.                                                                  | `""`        |
-| `effort`             | Reasoning effort the agent should use. Leave empty to let Codex pick its default.                                                       | `""`        |
-| `codex-home`         | Directory to use as the Codex CLI home (config/cache). Uses the CLI default when empty.                                                 | `""`        |
-| `safety-strategy`    | Controls how the action restricts Codex privileges. See [Safety strategy](#safety-strategy).                                            | `drop-sudo` |
-| `codex-user`         | Username to run Codex as when `safety-strategy` is `unprivileged-user`.                                                                 | `""`        |
-| `allow-users`        | List of GitHub usernames who can trigger the action in addition to those who have write access to the repo.                             | ""          |
-| `allow-bots`         | Allow runs triggered by GitHub Apps/bot accounts to bypass the write-access check.                                                      | "false"     |
+| Name                     | Description                                                                                                                                    | Default     |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| `openai-api-key`         | Secret used to start the Responses API proxy when you are using OpenAI (default). Store it in `secrets`.                                       | `""`        |
+| `responses-api-endpoint` | Optional Responses API endpoint override, e.g. `https://example.openai.azure.com/openai/v1/responses`. Leave empty to use the proxy's default. | `""`        |
+| `prompt`                 | Inline prompt text. Provide this or `prompt-file`.                                                                                             | `""`        |
+| `prompt-file`            | Path (relative to the repository root) of a file that contains the prompt. Provide this or `prompt`.                                           | `""`        |
+| `output-file`            | File where the final Codex message is written. Leave empty to skip writing a file.                                                             | `""`        |
+| `working-directory`      | Directory passed to `codex exec --cd`. Defaults to the repository root.                                                                        | `""`        |
+| `sandbox`                | Sandbox mode for Codex. One of `workspace-write` (default), `read-only` or `danger-full-access`.                                               | `""`        |
+| `codex-version`          | Version of `@openai/codex` to install.                                                                                                         | `""`        |
+| `codex-args`             | Extra arguments forwarded to `codex exec`. Accepts JSON arrays (`["--flag", "value"]`) or shell-style strings.                                 | `""`        |
+| `output-schema`          | Inline schema contents written to a temp file and passed to `codex exec --output-schema`. Mutually exclusive with `output-schema-file`.        | `""`        |
+| `output-schema-file`     | Schema file forwarded to `codex exec --output-schema`. Leave empty to skip passing the option.                                                 | `""`        |
+| `model`                  | Model the agent should use. Leave empty to let Codex pick its default.                                                                         | `""`        |
+| `effort`                 | Reasoning effort the agent should use. Leave empty to let Codex pick its default.                                                              | `""`        |
+| `codex-home`             | Directory to use as the Codex CLI home (config/cache). Uses the CLI default when empty.                                                        | `""`        |
+| `safety-strategy`        | Controls how the action restricts Codex privileges. See [Safety strategy](#safety-strategy).                                                   | `drop-sudo` |
+| `codex-user`             | Username to run Codex as when `safety-strategy` is `unprivileged-user`.                                                                        | `""`        |
+| `allow-users`            | List of GitHub usernames who can trigger the action in addition to those who have write access to the repo.                                    | `""`        |
+| `allow-bots`             | Allow runs triggered by GitHub Apps/bot accounts to bypass the write-access check.                                                             | `false`     |
 
 ## Safety Strategy
 
@@ -145,9 +146,28 @@ jobs:
 ## Additional tips
 
 - Run this action after `actions/checkout@v5` so Codex has access to your repository contents.
+- To use a non-default Responses endpoint (for example Azure OpenAI), set `responses-api-endpoint` to the provider's URL while keeping `openai-api-key` populated; the proxy will still send `Authorization: Bearer <key>` upstream.
 - If you want Codex to have access to a narrow set of privileged functionality, consider running a local MCP server that can perform these actions and configure Codex to use it.
 - If you need more control over the CLI invocation, pass flags through `codex-args` or create a `config.toml` in `codex-home`.
 - Once `openai/codex-action` is run once with `openai-api-key`, you can also call `codex` from subsequent scripts in your job. (You can omit `prompt` and `prompt-file` from the action in this case.)
+
+## Azure
+
+To configure the Action to use OpenAI models hosted on Azure, pay close attention to the following:
+
+- The `responses-api-endpoint` must be set to the full URL (including any required query parameters) that Codex will `POST` to for a Responses API request. For Azure, this might look like `https://YOUR_PROJECT_NAME.openai.azure.com/openai/v1/responses`. Note that [unlike when customizing a model provider in Codex](https://github.com/openai/codex/blob/main/docs/config.md#azure-model-provider-example), you must include the `v1/responses` suffix to the URL yourself, if appropriate.
+- The `openai-api-key` input must be a valid key that can be used with the `Authorization: Bearer <KEY>` header when making a `POST` request to your Responses API endpoint. (This is also true for the value of the [`env_key`](https://github.com/openai/codex/blob/main/docs/config.md#azure-model-provider-example) when setting a custom provider using the Codex CLI.)
+
+Ultimately, your configured Action might look something like the following:
+
+```yaml
+- name: Start Codex proxy
+  uses: openai/codex-action@v1
+  with:
+    openai-api-key: ${{ secrets.AZURE_OPENAI_API_KEY }}
+    responses-api-endpoint: "https://bolinfest-7804-resource.cognitiveservices.azure.com/openai/v1/responses"
+    prompt: "Debug all the things."
+```
 
 ## License
 

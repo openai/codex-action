@@ -18,6 +18,10 @@ inputs:
     description: "OpenAI API key used by Codex."
     required: false
     default: ""
+  responses-api-endpoint:
+    description: "Optional Responses API endpoint override, e.g. https://example.openai.azure.com/openai/v1/responses. Defaults to the proxy's built-in endpoint when empty."
+    required: false
+    default: ""
   working-directory:
     description: "Working directory that Codex should use. Defaults to the repository root."
     required: false
@@ -165,17 +169,29 @@ runs:
         fi
 
     # This is its own step to minimize the runtime logic that has access to the
-    # API key. Note we use `env -u OPENAI_API_KEY` to ensure extra copies of the
-    # key do not end up in the memory of the `codex-responses-api-proxy` process
-    # where environment variables are stored.
+    # API key. Note we use `env -u PROXY_API_KEY` to ensure extra copies of the
+    # key do not end up in the memory of the `codex-responses-api-proxy`
+    # process where environment variables are stored.
     - name: Start Responses API proxy
       if: ${{ inputs['openai-api-key'] != '' && steps.start_proxy.outputs.server_info_file_exists == 'false' }}
       env:
-        OPENAI_API_KEY: ${{ inputs['openai-api-key'] }}
+        PROXY_API_KEY: ${{ inputs['openai-api-key'] }}
       shell: bash
       run: |
+        upstream_url="${{ inputs['responses-api-endpoint'] }}"
+
+        args=(
+          codex-responses-api-proxy
+          --http-shutdown
+          --server-info "${{ steps.derive_server_info.outputs.server_info_file }}"
+        )
+
+        if [ -n "$upstream_url" ]; then
+          args+=(--upstream-url "$upstream_url")
+        fi
+
         (
-          printenv OPENAI_API_KEY | env -u OPENAI_API_KEY codex-responses-api-proxy --http-shutdown --server-info "${{ steps.derive_server_info.outputs.server_info_file }}"
+          printenv PROXY_API_KEY | env -u PROXY_API_KEY "${args[@]}"
         ) &
 
     - name: Wait for Responses API proxy
