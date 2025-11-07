@@ -1,5 +1,9 @@
 # codex-action Changelog
 
+## [v1.2](https://github.com/openai/codex-action/tree/v1.2) (2005-11-07)
+
+- [#52](https://github.com/openai/codex-action/pull/52) add `baseUrl` to `Octokit` constructor, if appropriate, for GHE
+
 ## [v1.1](https://github.com/openai/codex-action/tree/v1.1) (2005-11-05)
 
 - [#47](https://github.com/openai/codex-action/pull/47) added support for Azure via the new `responses-api-endpoint` parameter
