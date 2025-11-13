@@ -218,7 +218,7 @@ runs:
     # This step has an output named `port`.
     - name: Read server info
       id: read_server_info
-      if: ${{ inputs['openai-api-key'] != '' || inputs.prompt != '' || inputs['prompt-file'] != '' }}
+      if: ${{ inputs['openai-api-key'] != '' }}
       shell: bash
       run: node "${{ github.action_path }}/dist/main.js" read-server-info "${{ steps.derive_server_info.outputs.server_info_file }}"
 
@@ -232,7 +232,7 @@ runs:
           --safety-strategy "${{ inputs['safety-strategy'] }}"
 
     - name: Drop sudo privilege, if appropriate
-      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' }}
+      if: ${{ inputs['safety-strategy'] == 'drop-sudo' }}
       shell: bash
       run: |
         case "${RUNNER_OS}" in
@@ -249,7 +249,7 @@ runs:
         esac
 
     - name: Verify sudo privilege removed
-      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' }}
+      if: ${{ inputs['safety-strategy'] == 'drop-sudo' }}
       shell: bash
       run: |
         if sudo -n true 2>/dev/null; then
