@@ -34,8 +34,7 @@ inputs:
   codex-version:
     description: "Version of `@openai/codex` to install."
     required: false
-    # Temporary fix to prevent picking up 0.59.0.
-    default: "0.58.0"
+    default: ""
   codex-args:
     description: "Additional args to pass through to `codex exec`. If this value starts with `[`, it will be parsed as a JSON array; otherwise, it will be parsed as a shell-like string."
     required: false
