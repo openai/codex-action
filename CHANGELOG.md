@@ -1,5 +1,9 @@
 # codex-action Changelog
 
+## [v1.4](https://github.com/openai/codex-action/tree/v1.4) (2005-11-19)
+
+- [#58](https://github.com/openai/codex-action/pull/58) revert #56 and use the latest stable version of Codex CLI again
+
 ## [v1.3](https://github.com/openai/codex-action/tree/v1.3) (2005-11-19)
 
 - [#56](https://github.com/openai/codex-action/pull/56) temporarily set the default version of Codex CLI to `0.58.0`
