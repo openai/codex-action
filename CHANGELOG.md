@@ -1,5 +1,9 @@
 # codex-action Changelog
 
+## [v1.3](https://github.com/openai/codex-action/tree/v1.3) (2005-11-19)
+
+- [#56](https://github.com/openai/codex-action/pull/56) temporarily set the default version of Codex CLI to `0.58.0`
+
 ## [v1.2](https://github.com/openai/codex-action/tree/v1.2) (2005-11-07)
 
 - [#52](https://github.com/openai/codex-action/pull/52) add `baseUrl` to `Octokit` constructor, if appropriate, for GHE
