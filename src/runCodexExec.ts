@@ -1,5 +1,6 @@
 import { spawn } from "child_process";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "fs/promises";
+import fs from "fs";
 import path from "path";
 import os from "os";
 import { setOutput } from "@actions/core";
@@ -80,6 +81,8 @@ export async function runCodexExec({
   } else {
     outputFile = await createTempOutputFile({ runAsUser });
   }
+
+  let logFile = await createTempLogFile({ runAsUser });
 
   const resolvedOutputSchema = await resolveOutputSchema(
     outputSchema,
@@ -163,13 +166,19 @@ export async function runCodexExec({
       .join(" ")}`
   );
   try {
+    const outStream = fs.createWriteStream(logFile, { flags: "a" });
     await new Promise((resolve, reject) => {
       const child = spawn(program, command, {
         env,
-        stdio: ["pipe", "inherit", "inherit"],
+        stdio: ["pipe", "pipe", "inherit"],
       });
       child.stdin.write(input);
       child.stdin.end();
+
+      child.stdout.on("data", (chunk) => {
+        process.stdout.write(chunk);
+        outStream.write(chunk);
+      });
 
       child.on("error", reject);
 
@@ -181,6 +190,7 @@ export async function runCodexExec({
 
         try {
           await finalizeExecution(outputFile, runAsUser);
+          await setTokenUsage(logFile, runAsUser);
           resolve(undefined);
         } catch (err) {
           reject(err);
@@ -212,6 +222,30 @@ async function finalizeExecution(
     setOutput("final-message", lastMessage);
   } finally {
     await cleanupTempOutput(outputFile, runAsUser);
+  }
+}
+
+async function setTokenUsage(
+  logFile: string,
+  runAsUser: string | null
+): Promise<void> {
+  try {
+    let outputLog: string;
+    if (runAsUser == null) {
+      outputLog = await readFile(logFile, "utf8");
+    } else {
+      outputLog = await checkOutput([
+        "sudo",
+        "-u",
+        runAsUser,
+        "cat",
+        logFile,
+      ]);
+    }
+    let tokensUsed = outputLog.match(/tokens used\s+([\d.]+)/);
+    setOutput("tokens-used", tokensUsed);
+  } finally {
+    await cleanupTempOutput({file: logFile, type: "temp"}, runAsUser);
   }
 }
 
@@ -264,6 +298,15 @@ async function cleanupTempOutput(
       break;
     }
   }
+}
+
+async function createTempLogFile({
+  runAsUser,
+}: {
+  runAsUser: string | null;
+}): Promise<string> {
+  const dir = await createTempDir("codex-exec-", runAsUser);
+  return path.join(dir, "output.log");
 }
 
 async function resolveOutputSchema(

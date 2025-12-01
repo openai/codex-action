@@ -132,6 +132,7 @@ See [Protecting your `OPENAI_API_KEY`](./docs/security.md#protecting-your-openai
 | Name            | Description                             |
 | --------------- | --------------------------------------- |
 | `final-message` | Final message returned by `codex exec`. |
+| `tokens-used`   | The number of tokens used.              |
 
 As we saw in the example above, we took the `final-message` output of the `run_codex` step and made it an output of the `codex` job in the workflow:
 
