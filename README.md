@@ -35,12 +35,23 @@ jobs:
         with:
           # Explicitly check out the PR's merge commit.
           ref: refs/pull/${{ github.event.pull_request.number }}/merge
+          # Fetch full history so git merge-base can find the common ancestor
+          fetch-depth: 0
 
       - name: Pre-fetch base and head refs for the PR
         run: |
           git fetch --no-tags origin \
             ${{ github.event.pull_request.base.ref }} \
             +refs/pull/${{ github.event.pull_request.number }}/head
+
+      - name: Compute merge-base
+        id: merge_base
+        run: |
+          # Find the common ancestor between the PR branch and base branch.
+          # This ensures we only review changes introduced by the PR, not
+          # changes added to main after the PR branch was created.
+          MERGE_BASE=$(git merge-base origin/${{ github.event.pull_request.base.ref }} HEAD)
+          echo "sha=$MERGE_BASE" >> "$GITHUB_OUTPUT"
 
       # If you want Codex to build and run code, install any dependencies that
       # need to be downloaded before the "Run Codex" step because Codex's
@@ -54,8 +65,8 @@ jobs:
           prompt: |
             This is PR #${{ github.event.pull_request.number }} for ${{ github.repository }}.
 
-            Review ONLY the changes introduced by the PR, so consider:
-               git log --oneline ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}
+            Review ONLY the changes introduced by the PR. Use this to see the diff:
+               git diff ${{ steps.merge_base.outputs.sha }}..HEAD
 
             Suggest any improvements, potential bugs, or issues.
             Be concise and specific in your feedback.
