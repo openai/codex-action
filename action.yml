@@ -155,6 +155,16 @@ runs:
         server_info_file="${{ steps.resolve_home.outputs.codex-home }}/${{ github.run_id }}.json"
         echo "server_info_file=$server_info_file" >> "$GITHUB_OUTPUT"
 
+    - name: Validate OpenAI API key input
+      if: ${{ inputs.prompt != '' || inputs['prompt-file'] != '' }}
+      shell: bash
+      run: |
+        openai_api_key="${{ inputs['openai-api-key'] }}"
+        if [ -z "${openai_api_key//[[:space:]]/}" ]; then
+          echo "openai-api-key input is empty. Set OPENAI_API_KEY secret and pass it to this action." >&2
+          exit 1
+        fi
+
     - name: Check Responses API proxy status
       id: start_proxy
       if: ${{ inputs['openai-api-key'] != '' }}
@@ -218,7 +228,7 @@ runs:
     # This step has an output named `port`.
     - name: Read server info
       id: read_server_info
-      if: ${{ inputs['openai-api-key'] != '' || inputs.prompt != '' || inputs['prompt-file'] != '' }}
+      if: ${{ inputs['openai-api-key'] != '' }}
       shell: bash
       run: node "${{ github.action_path }}/dist/main.js" read-server-info "${{ steps.derive_server_info.outputs.server_info_file }}"
 
