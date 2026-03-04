@@ -7,6 +7,11 @@ export type WriteAccessCheck =
       actor: string;
     }
   | {
+      status: "skipped";
+      actor: string;
+      reason: string;
+    }
+  | {
       status: "rejected";
       actor: string;
       reason: string;
@@ -28,6 +33,13 @@ type EnsureWriteAccessOptions = {
    * Case-insensitive; empty string or undefined disables this override.
    */
   allowUsers?: string;
+  /**
+   * The GitHub event name (e.g. "schedule", "push", "pull_request").
+   * When set to "schedule", the actor check is skipped because the actor
+   * for scheduled workflows is the user who last modified the cron
+   * syntax in the workflow file, not a meaningful triggering user.
+   */
+  eventName?: string;
 };
 
 /**
@@ -47,6 +59,14 @@ export async function ensureActorHasWriteAccess(
       actor: actor ?? "<unknown>",
       reason: "GITHUB_ACTOR is not set; cannot determine triggering user.",
     };
+  }
+
+  const eventName = options.eventName ?? process.env.GITHUB_EVENT_NAME;
+  if (eventName === "schedule") {
+    const reason =
+      "Scheduled workflows set GITHUB_ACTOR to the user who last modified the cron syntax, not the triggering user. Skipping actor permission check.";
+    core.info(reason);
+    return { status: "skipped", actor, reason };
   }
 
   if (!repository || repository.trim().length === 0) {
