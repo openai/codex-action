@@ -6,6 +6,8 @@ Running Codex as part of a GitHub workflow can be a powerful tool, but it is imp
 
 One of the most fundamental ways to safeguard your workflow is to limit who can run it in the first place. By default, `openai/codex-action` can only be run by a user who has _write_ access to your repository. While you can expand this list via the `allow-users` and `allow-bots` options, do so with caution.
 
+Note that for `schedule` (cron) triggered workflows, the actor permission check is **skipped**. This is because GitHub sets `GITHUB_ACTOR` to the user who last modified the cron syntax in the workflow file, not the user who triggered the run. Since only users with write access to the repository can modify workflow files, scheduled runs are considered implicitly authorized.
+
 Further, while you may design your workflow such that those with _write_ access can trigger it on content from arbitrary users (i.e., by adding a label to an issue created by an external user) such that you rely on manual approval as a means of defense, it is still important to consider other potential exploits, such as untrusted input.
 
 ## Defending against untrusted input

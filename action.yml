@@ -128,7 +128,8 @@ runs:
       run: |
         node "${{ github.action_path }}/dist/main.js" check-write-access \
           --allow-bots "${{ inputs['allow-bots'] }}" \
-          --allow-users "${{ inputs['allow-users'] }}"
+          --allow-users "${{ inputs['allow-users'] }}" \
+          --event-name "${{ github.event_name }}"
 
     - name: Install Codex CLI
       shell: bash

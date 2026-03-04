@@ -111,6 +111,8 @@ jobs:
 | `allow-users`            | List of GitHub usernames who can trigger the action in addition to those who have write access to the repo.                                    | `""`        |
 | `allow-bots`             | Allow runs triggered by GitHub Apps/bot accounts to bypass the write-access check.                                                             | `false`     |
 
+> **Note:** For `schedule` (cron) triggered workflows, the actor permission check is automatically skipped. See [`security.md`](./docs/security.md#limiting-who-can-run-your-workflow) for details.
+
 ## Safety Strategy
 
 The `safety-strategy` input determines how much access Codex receives on the runner. Choosing the right option is critical, especially when sensitive secrets (like your OpenAI API key) are present.

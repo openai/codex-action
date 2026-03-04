@@ -270,21 +270,33 @@ export async function main() {
       "Comma-separated list of GitHub usernames who can run this action, or '*' to allow all users.",
       ""
     )
+    .option(
+      "--event-name <event>",
+      "GitHub event name (e.g. schedule, push, pull_request).",
+      ""
+    )
     .action(
       async ({
         allowBots,
         allowUsers,
+        eventName,
       }: {
         allowBots: boolean;
         allowUsers: string;
+        eventName: string;
       }) => {
         const result = await ensureActorHasWriteAccess({
           allowBotActors: allowBots,
           allowUsers,
+          eventName: emptyAsNull(eventName) ?? undefined,
         });
         switch (result.status) {
           case "approved": {
             console.log(`Actor '${result.actor}' is permitted to continue.`);
+            break;
+          }
+          case "skipped": {
+            console.log(`Actor permission check skipped: ${result.reason}`);
             break;
           }
           case "rejected": {
