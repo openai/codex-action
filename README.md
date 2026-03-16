@@ -37,10 +37,14 @@ jobs:
           ref: refs/pull/${{ github.event.pull_request.number }}/merge
 
       - name: Pre-fetch base and head refs for the PR
+        env:
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
+          # Pass GitHub expressions through env and quote shell expansions.
           git fetch --no-tags origin \
-            ${{ github.event.pull_request.base.ref }} \
-            +refs/pull/${{ github.event.pull_request.number }}/head
+            "$PR_BASE_REF" \
+            "+refs/pull/$PR_NUMBER/head"
 
       # If you want Codex to build and run code, install any dependencies that
       # need to be downloaded before the "Run Codex" step because Codex's

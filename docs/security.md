@@ -16,6 +16,20 @@ There is a lot of valuable context that can be used to fuel your invocation of C
 - **Commit messages**: a pull request can be composed of many commits. The messages for individual commits often go unnoticed, but could read by Codex.
 - **Screenshots** screenshots and other media have been known to be used as vehicles for prompt injection.
 
+## Avoid shell injection in workflow steps
+
+GitHub Actions expands `${{ ... }}` expressions before the shell runs your `run:` script. If you splice untrusted values such as branch names, issue titles, comment bodies, or action inputs directly into the script, those values can break shell quoting and execute arbitrary commands.
+
+Instead, pass those values through `env:` and quote the shell variables that consume them:
+
+```yaml
+- name: Safe shell usage
+  env:
+    PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+  run: |
+    git fetch origin "$PR_BASE_REF"
+```
+
 <!-- TODO ## Protecting secrets -->
 
 ## Look out for API key abuse
