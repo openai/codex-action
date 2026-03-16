@@ -29,9 +29,11 @@ jobs:
           safety-strategy: ${{ matrix.safety-strategy }}
 
       - name: Try to dump the key from the codex-responses-api-proxy process
+        env:
+          CODEX_RUN_ID: ${{ github.run_id }}
         run: |
           # Find the PID for the codex-responses-api-proxy process.
-          SERVER_INFO_FILE="$HOME/.codex/${{ github.run_id }}.json"
+          SERVER_INFO_FILE="$HOME/.codex/$CODEX_RUN_ID.json"
           PID=$(jq .pid < "$SERVER_INFO_FILE")
 
           # Using standard filesystem read operations (albeit privileged ones),
