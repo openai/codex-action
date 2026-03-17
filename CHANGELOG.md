@@ -1,5 +1,9 @@
 # codex-action Changelog
 
+## [v1.6](https://github.com/openai/codex-action/tree/v1.6) (2026-03-16)
+
+- [#77](https://github.com/openai/codex-action/pull/77) enable GitHub-hosted Linux bubblewrap support
+
 ## [v1.5](https://github.com/openai/codex-action/tree/v1.5) (2026-03-16)
 
 - [#74](https://github.com/openai/codex-action/pull/74) harden shell interpolation in action workflows
