@@ -259,6 +259,32 @@ runs:
           --port "$PROXY_PORT" \
           --safety-strategy "$SAFETY_STRATEGY"
 
+    - name: Enable Linux user namespaces for bubblewrap
+      if: ${{ runner.os == 'Linux' && runner.environment == 'github-hosted' && (inputs['openai-api-key'] != '' || inputs.prompt != '' || inputs['prompt-file'] != '') }}
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        # Bubblewrap needs unprivileged user namespaces on GitHub-hosted Linux
+        # runners. This step runs before drop-sudo, then becomes a no-op on
+        # later codex-action invocations in the same job because the sysctls
+        # already have the desired values. See issue #75 for the failure mode
+        # this is working around on newer Ubuntu images.
+        current_userns="$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)"
+        if [ -n "$current_userns" ] && [ "$current_userns" != "1" ]; then
+          echo "Enabling kernel.unprivileged_userns_clone for bubblewrap."
+          sudo sysctl -w kernel.unprivileged_userns_clone=1
+        fi
+
+        # Ubuntu 24.04+ can additionally block unprivileged user namespaces via
+        # AppArmor, which causes bubblewrap to fail with
+        # `loopback: Failed RTM_NEWADDR: Operation not permitted`.
+        current_apparmor="$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)"
+        if [ -n "$current_apparmor" ] && [ "$current_apparmor" != "0" ]; then
+          echo "Disabling kernel.apparmor_restrict_unprivileged_userns for bubblewrap."
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+        fi
+
     - name: Drop sudo privilege, if appropriate
       if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' }}
       shell: bash
