@@ -260,7 +260,7 @@ runs:
           --safety-strategy "$SAFETY_STRATEGY"
 
     - name: Enable Linux user namespaces for bubblewrap
-      if: ${{ runner.os == 'Linux' && runner.environment == 'github-hosted' && inputs.sandbox != 'danger-full-access' && (inputs['openai-api-key'] != '' || inputs.prompt != '' || inputs['prompt-file'] != '') }}
+      if: ${{ runner.os == 'Linux' && runner.environment == 'github-hosted' && (inputs['openai-api-key'] != '' || inputs.prompt != '' || inputs['prompt-file'] != '') }}
       shell: bash
       run: |
         current_userns="$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)"

@@ -130,7 +130,7 @@ See [Protecting your `OPENAI_API_KEY`](./docs/security.md#protecting-your-openai
 
 - **Windows**: GitHub-hosted Windows runners lack a supported sandbox. Set `safety-strategy: unsafe`. The action validates this and exits early otherwise.
 - **Linux/macOS**: All options for `safety-strategy` are supported. Again, if you pick `drop-sudo`, remember that later steps in your `job` that rely on `sudo` will fail. If you do need to run code that requires `sudo` after `openai/codex-action` has run, one option is to pipe the output of `openai/codex-action` to a fresh `job` on a new host and to continue your workflow from there.
-- **GitHub-hosted Linux runners**: When `sandbox` is not `danger-full-access`, the action enables unprivileged user namespaces during setup and clears Ubuntu's AppArmor gate when present. This avoids the `bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted` failure seen on newer hosted images, including workflows that use the action once to bootstrap Codex and then call `codex` in later steps. Self-hosted Linux runners still need equivalent kernel support configured ahead of time.
+- **GitHub-hosted Linux runners**: The action enables unprivileged user namespaces during setup and clears Ubuntu's AppArmor gate when present. This avoids the `bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted` failure seen on newer hosted images, including workflows that use the action once to bootstrap Codex and then call `codex` in later steps. Self-hosted Linux runners still need equivalent kernel support configured ahead of time.
 
 ## Outputs
 
