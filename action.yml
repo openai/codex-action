@@ -259,6 +259,22 @@ runs:
           --port "$PROXY_PORT" \
           --safety-strategy "$SAFETY_STRATEGY"
 
+    - name: Enable Linux user namespaces for bubblewrap
+      if: ${{ runner.os == 'Linux' && runner.environment == 'github-hosted' && inputs.sandbox != 'danger-full-access' && (inputs['openai-api-key'] != '' || inputs.prompt != '' || inputs['prompt-file'] != '') }}
+      shell: bash
+      run: |
+        current_userns="$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)"
+        if [ -n "$current_userns" ] && [ "$current_userns" != "1" ]; then
+          echo "Enabling kernel.unprivileged_userns_clone for bubblewrap."
+          sudo sysctl -w kernel.unprivileged_userns_clone=1
+        fi
+
+        current_apparmor="$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)"
+        if [ -n "$current_apparmor" ] && [ "$current_apparmor" != "0" ]; then
+          echo "Disabling kernel.apparmor_restrict_unprivileged_userns for bubblewrap."
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+        fi
+
     - name: Drop sudo privilege, if appropriate
       if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' }}
       shell: bash
