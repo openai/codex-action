@@ -55,6 +55,7 @@ jobs:
         uses: openai/codex-action@v1
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          # sandbox: danger-full-access # Set `sandbox: danger-full-access` on runners where bwrap is unsupported, to bypass codex (>=0.115.0) sandbox/runtime issue (`bwrap: ... RTM_NEWADDR: Operation not permitted`)
           prompt: |
             This is PR #${{ github.event.pull_request.number }} for ${{ github.repository }}.
 
