@@ -268,7 +268,8 @@ runs:
         # Bubblewrap needs unprivileged user namespaces on GitHub-hosted Linux
         # runners. This step runs before drop-sudo, then becomes a no-op on
         # later codex-action invocations in the same job because the sysctls
-        # already have the desired values.
+        # already have the desired values. See issue #75 for the failure mode
+        # this is working around on newer Ubuntu images.
         current_userns="$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)"
         if [ -n "$current_userns" ] && [ "$current_userns" != "1" ]; then
           echo "Enabling kernel.unprivileged_userns_clone for bubblewrap."
