@@ -307,7 +307,7 @@ async function createTempDir(
   runAsUser: string | null
 ): Promise<string> {
   if (runAsUser == null) {
-    return await mkdtemp(path.join(os.tmpdir(), prefix));
+    return await mkdtemp(path.join(getCodexExecTempRoot(), prefix));
   } else {
     return (
       await checkOutput([
@@ -321,6 +321,10 @@ async function createTempDir(
       ])
     ).trim();
   }
+}
+
+export function getCodexExecTempRoot(): string {
+  return process.env.RUNNER_TEMP ?? os.tmpdir();
 }
 
 async function determineSandboxMode({
