@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "build": "esbuild src/main.ts --sourcemap=inline --format=cjs --bundle --platform=node --target=node20 --outdir=dist",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "test": "pnpm run build && node --test test/*.test.js"
   },
   "dependencies": {
     "@actions/core": "^1.11.1",

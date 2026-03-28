@@ -6,6 +6,7 @@ import pkg from "../package.json" assert { type: "json" };
 
 import { readServerInfo } from "./readServerInfo";
 import {
+  getCodexExecTempRoot,
   SandboxMode,
   OutputSchemaSource,
   PromptSource,
@@ -361,7 +362,11 @@ function parseBoolean(value: string): boolean {
   throw new Error(`Invalid boolean value: ${value}`);
 }
 
-main();
+export { getCodexExecTempRoot };
+
+if (require.main === module) {
+  main();
+}
 
 async function resolveCodexHome(
   inputCodexHome: string | null,
