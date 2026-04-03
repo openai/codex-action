@@ -105,6 +105,15 @@ outputs:
   final-message:
     description: "Raw output emitted by `codex exec`."
     value: ${{ steps.run_codex.outputs['final-message'] }}
+  input-tokens:
+    description: "Total input tokens consumed by the Codex run (empty if unavailable)."
+    value: ${{ steps.extract_tokens.outputs['input-tokens'] }}
+  output-tokens:
+    description: "Total output tokens consumed by the Codex run (empty if unavailable)."
+    value: ${{ steps.extract_tokens.outputs['output-tokens'] }}
+  cached-input-tokens:
+    description: "Total cached input tokens consumed by the Codex run (empty if unavailable)."
+    value: ${{ steps.extract_tokens.outputs['cached-input-tokens'] }}
 runs:
   using: "composite"
   steps:
@@ -355,3 +364,14 @@ runs:
             --effort "$CODEX_EFFORT" \
             --safety-strategy "$CODEX_SAFETY_STRATEGY" \
             --codex-user "$CODEX_USER"
+
+    - name: Extract token outputs
+      id: extract_tokens
+      if: ${{ inputs.prompt != '' || inputs['prompt-file'] != '' }}
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        CODEX_HOME: ${{ steps.resolve_home.outputs.codex-home }}
+      shell: bash
+      run: |
+        node "$ACTION_PATH/dist/main.js" extract-token-outputs \
+          --codex-home "$CODEX_HOME"

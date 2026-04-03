@@ -17,6 +17,7 @@ import { ensureActorHasWriteAccess } from "./checkActorPermissions";
 import parseArgsStringToArgv from "string-argv";
 import { writeProxyConfig } from "./writeProxyConfig";
 import { checkOutput } from "./checkOutput";
+import { extractTokenOutputs } from "./extractTokenOutputs";
 
 export async function main() {
   const program = new Command();
@@ -253,6 +254,19 @@ export async function main() {
         });
       }
     );
+
+  program
+    .command("extract-token-outputs")
+    .description(
+      "Reads the most recent Codex rollout JSONL and sets input-tokens, output-tokens, and cached-input-tokens step outputs"
+    )
+    .requiredOption(
+      "--codex-home <DIRECTORY>",
+      "Path to the Codex CLI home directory (where sessions/ is written)"
+    )
+    .action(async (options: { codexHome: string }) => {
+      await extractTokenOutputs(options.codexHome);
+    });
 
   program
     .command("check-write-access")
