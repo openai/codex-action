@@ -94,9 +94,13 @@ inputs:
     required: false
     default: ""
   allow-bots:
-    description: "Allow runs triggered by GitHub Apps/bot accounts to bypass the write-access check."
+    description: "Allow runs triggered by trusted GitHub bot accounts (dependabot[bot] and github-actions[bot]) to bypass the write-access check."
     required: false
     default: "false"
+  allow-bot-users:
+    description: "Comma-separated list of GitHub bot usernames that can bypass the write-access check. '*' is not supported; list trusted bots explicitly. Entries may include or omit the trailing [bot] suffix."
+    required: false
+    default: ""
 outputs:
   final-message:
     description: "Raw output emitted by `codex exec`."
@@ -128,11 +132,13 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
         GITHUB_TOKEN: ${{ github.token }}
         ALLOW_BOTS: ${{ inputs['allow-bots'] }}
+        ALLOW_BOT_USERS: ${{ inputs['allow-bot-users'] }}
         ALLOW_USERS: ${{ inputs['allow-users'] }}
       shell: bash
       run: |
         node "$ACTION_PATH/dist/main.js" check-write-access \
           --allow-bots "$ALLOW_BOTS" \
+          --allow-bot-users "$ALLOW_BOT_USERS" \
           --allow-users "$ALLOW_USERS"
 
     - name: Install Codex CLI
