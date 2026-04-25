@@ -1,5 +1,9 @@
 # codex-action Changelog
 
+## [v1.7](https://github.com/openai/codex-action/tree/v1.7) (2026-04-24)
+
+- [#89](https://github.com/openai/codex-action/pull/89) restrict bot permission bypass
+
 ## [v1.6](https://github.com/openai/codex-action/tree/v1.6) (2026-03-16)
 
 - [#77](https://github.com/openai/codex-action/pull/77) enable GitHub-hosted Linux bubblewrap support
