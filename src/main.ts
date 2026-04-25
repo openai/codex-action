@@ -261,26 +261,34 @@ export async function main() {
     )
     .option(
       "--allow-bots <boolean>",
-      "Allow GitHub App and bot actors to bypass the write-access check (default: true).",
+      "Allow trusted GitHub bot actors to bypass the write-access check (default: false).",
       parseBoolean,
-      true
+      false
     )
     .option(
       "--allow-users <users>",
       "Comma-separated list of GitHub usernames who can run this action, or '*' to allow all users.",
       ""
     )
+    .option(
+      "--allow-bot-users <users>",
+      "Comma-separated list of GitHub bot usernames that can bypass the write-access check. '*' is not supported.",
+      ""
+    )
     .action(
       async ({
         allowBots,
         allowUsers,
+        allowBotUsers,
       }: {
         allowBots: boolean;
         allowUsers: string;
+        allowBotUsers: string;
       }) => {
         const result = await ensureActorHasWriteAccess({
           allowBotActors: allowBots,
           allowUsers,
+          allowBotUsers,
         });
         switch (result.status) {
           case "approved": {

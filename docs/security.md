@@ -4,7 +4,7 @@ Running Codex as part of a GitHub workflow can be a powerful tool, but it is imp
 
 ## Limiting who can run your workflow
 
-One of the most fundamental ways to safeguard your workflow is to limit who can run it in the first place. By default, `openai/codex-action` can only be run by a user who has _write_ access to your repository. While you can expand this list via the `allow-users` and `allow-bots` options, do so with caution.
+One of the most fundamental ways to safeguard your workflow is to limit who can run it in the first place. By default, `openai/codex-action` can only be run by a user who has _write_ access to your repository. While you can expand this list via `allow-users`, allow trusted GitHub bot actors (`dependabot[bot]` and `github-actions[bot]`) via `allow-bots`, or list custom trusted bots via `allow-bot-users`, do so with caution. `allow-bot-users` does not support `*`; list each trusted bot explicitly.
 
 Further, while you may design your workflow such that those with _write_ access can trigger it on content from arbitrary users (i.e., by adding a label to an issue created by an external user) such that you rely on manual approval as a means of defense, it is still important to consider other potential exploits, such as untrusted input.
 
