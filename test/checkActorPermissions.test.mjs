@@ -28,14 +28,21 @@ test("does not trust arbitrary bot actor suffixes", () => {
 });
 
 test("allows trusted GitHub bot actors when enabled", () => {
-  const result = runCheckWriteAccess("dependabot[bot]", ["--allow-bots", "true"]);
+  const result = runCheckWriteAccess("github-actions[bot]", ["--allow-bots", "true"]);
 
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /permitted to continue/);
 });
 
 test("requires explicit opt-in for trusted GitHub bot actors", () => {
-  const result = runCheckWriteAccess("dependabot[bot]");
+  const result = runCheckWriteAccess("github-actions[bot]");
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /A GitHub token is required/);
+});
+
+test("does not trust dependabot when generic bot bypass is enabled", () => {
+  const result = runCheckWriteAccess("dependabot[bot]", ["--allow-bots", "true"]);
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /A GitHub token is required/);

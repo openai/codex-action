@@ -18,9 +18,9 @@ type EnsureWriteAccessOptions = {
   actor?: string;
   repository?: string;
   /**
-   * When true, trusted GitHub bot actors such as dependabot are allowed without
-   * checking collaborator permissions. Other bots must pass the same checks as
-   * human users.
+   * When true, trusted GitHub bot actors are allowed without checking
+   * collaborator permissions. Other bots must pass the same checks as human
+   * users.
    */
   allowBotActors?: boolean;
   /**
@@ -178,7 +178,7 @@ function getTokenFromEnv(): string {
   return token && token.trim().length > 0 ? token : "";
 }
 
-const TRUSTED_GITHUB_BOT_ACTORS = new Set(["dependabot[bot]", "github-actions[bot]"]);
+const TRUSTED_GITHUB_BOT_ACTORS = new Set(["github-actions[bot]"]);
 
 function isTrustedGitHubBotActor(actor: string): boolean {
   return isBotActor(actor) && TRUSTED_GITHUB_BOT_ACTORS.has(normalizeBotActor(actor));

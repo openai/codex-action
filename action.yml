@@ -94,7 +94,7 @@ inputs:
     required: false
     default: ""
   allow-bots:
-    description: "Allow runs triggered by trusted GitHub bot accounts (dependabot[bot] and github-actions[bot]) to bypass the write-access check."
+    description: "Allow runs triggered by trusted GitHub bot accounts (github-actions[bot]) to bypass the write-access check."
     required: false
     default: "false"
   allow-bot-users:
