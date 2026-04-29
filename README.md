@@ -135,9 +135,12 @@ See [Protecting your `OPENAI_API_KEY`](./docs/security.md#protecting-your-openai
 
 ## Outputs
 
-| Name            | Description                             |
-| --------------- | --------------------------------------- |
-| `final-message` | Final message returned by `codex exec`. |
+| Name                  | Description                                                                   |
+| --------------------- | ----------------------------------------------------------------------------- |
+| `final-message`       | Final message returned by `codex exec`.                                       |
+| `input-tokens`        | Total input tokens consumed by the run (empty string if unavailable).         |
+| `output-tokens`       | Total output tokens consumed by the run (empty string if unavailable).        |
+| `cached-input-tokens` | Total cached input tokens consumed by the run (empty string if unavailable).  |
 
 As we saw in the example above, we took the `final-message` output of the `run_codex` step and made it an output of the `codex` job in the workflow:
 
@@ -147,6 +150,45 @@ jobs:
     # ...
     outputs:
       final_message: ${{ steps.run_codex.outputs.final-message }}
+```
+
+### Using token outputs
+
+Log token usage or enforce a budget in a downstream step:
+
+```yaml
+- uses: openai/codex-action@v1
+  id: codex
+  with:
+    prompt: "Fix the failing tests"
+    openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+
+- name: Log token usage
+  run: |
+    echo "Input tokens:  ${{ steps.codex.outputs.input-tokens }}"
+    echo "Output tokens: ${{ steps.codex.outputs.output-tokens }}"
+    echo "Cached tokens: ${{ steps.codex.outputs.cached-input-tokens }}"
+```
+
+To track costs across runs, forward the token counts to a cost dashboard.
+[AgentMeter](https://agentmeter.app) is a GitHub-native option built for this:
+
+```yaml
+- uses: openai/codex-action@v1
+  id: codex
+  with:
+    prompt: "..."
+    openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+
+- uses: AgentMeter/agentmeter-action@v1
+  with:
+    api_key: ${{ secrets.AGENTMETER_API_KEY }}
+    model: gpt-5.3-codex
+    engine: codex
+    input_tokens: ${{ steps.codex.outputs.input-tokens }}
+    output_tokens: ${{ steps.codex.outputs.output-tokens }}
+    cache_read_tokens: ${{ steps.codex.outputs.cached-input-tokens }}
+    status: ${{ job.status }}
 ```
 
 ## Additional tips
