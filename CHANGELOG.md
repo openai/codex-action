@@ -1,5 +1,9 @@
 # codex-action Changelog
 
+## [v1.8](https://github.com/openai/codex-action/tree/v1.8) (2026-04-29)
+
+- [#91](https://github.com/openai/codex-action/pull/91) tighten what bots are allowed
+
 ## [v1.7](https://github.com/openai/codex-action/tree/v1.7) (2026-04-24)
 
 - [#89](https://github.com/openai/codex-action/pull/89) restrict bot permission bypass
