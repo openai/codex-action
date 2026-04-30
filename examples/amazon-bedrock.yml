@@ -1,0 +1,42 @@
+name: "Example: Run Codex against Amazon Bedrock"
+on:
+  workflow_dispatch:
+
+# AWS OIDC requires the workflow to request an id-token. `contents: read` is
+# only needed by `actions/checkout`.
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  run-codex-on-bedrock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Configure AWS credentials BEFORE running codex-action. This action
+      # does not accept raw AWS keys; it relies on the standard AWS SDK
+      # credential chain (env vars, ~/.aws/credentials, IMDS, or the
+      # AWS_WEB_IDENTITY_TOKEN_FILE / AWS_ROLE_ARN pair set by OIDC).
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/my-bedrock-role
+          aws-region: us-east-1
+
+      - name: Run Codex on Amazon Bedrock
+        uses: openai/codex-action@v1
+        with:
+          # Opt in to Bedrock mode. No `openai-api-key` is needed; the
+          # Responses API proxy is not started.
+          use-bedrock: true
+
+          # Any Bedrock model id available in your account/region.
+          model: openai.gpt-oss-120b
+
+          # Optional: override the provider base_url for a non-default
+          # region or custom endpoint. Leave unset to use Codex's default.
+          # bedrock-base-url: https://bedrock-runtime.us-west-2.amazonaws.com
+
+          prompt: |
+            Summarize the README of this repository in one paragraph.

@@ -115,6 +115,8 @@ jobs:
 | `allow-users`            | List of GitHub usernames who can trigger the action in addition to those who have write access to the repo.                                    | `""`        |
 | `allow-bots`             | Allow runs triggered by trusted GitHub bot accounts (`github-actions[bot]`) to bypass the write-access check.                                  | `false`     |
 | `allow-bot-users`        | List of GitHub bot usernames that can bypass the write-access check. `*` is not supported; list trusted bots explicitly.                       | `""`        |
+| `use-bedrock`            | Opt-in: use Amazon Bedrock as the model provider instead of the OpenAI Responses API proxy. AWS credentials must already be configured on the runner (see [Amazon Bedrock](#amazon-bedrock)). | `false`     |
+| `bedrock-base-url`       | Optional `base_url` override for the `amazon-bedrock` model provider. Only used when `use-bedrock` is `true`.                                  | `""`        |
 
 ## Safety Strategy
 
@@ -174,6 +176,48 @@ Ultimately, your configured Action might look something like the following:
     responses-api-endpoint: "https://bolinfest-7804-resource.cognitiveservices.azure.com/openai/v1/responses"
     prompt: "Debug all the things."
 ```
+
+## Amazon Bedrock
+
+Codex can be configured to use [Amazon Bedrock](https://aws.amazon.com/bedrock/) as its model provider instead of the OpenAI Responses API. To enable this, set `use-bedrock: true` and omit `openai-api-key`. When in Bedrock mode, the Responses API proxy is not started and no OpenAI key is required.
+
+Requirements:
+
+- `@openai/codex` **>= 0.124.0** (the version installed by this action), which has a built-in `amazon-bedrock` model provider that authenticates via the standard AWS SDK credential chain.
+- AWS credentials must be configured on the runner **before** this action runs. The recommended approach is to use [`aws-actions/configure-aws-credentials`](https://github.com/aws-actions/configure-aws-credentials) with OIDC. This action does **not** accept raw AWS keys as inputs and does **not** call `aws configure`.
+- A Bedrock model id supported in your AWS account/region (passed via the existing `model` input), for example `openai.gpt-oss-120b`.
+
+Example:
+
+```yaml
+jobs:
+  codex:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # required for AWS OIDC
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/my-bedrock-role
+          aws-region: us-east-1
+
+      - name: Run Codex on Bedrock
+        uses: openai/codex-action@v1
+        with:
+          use-bedrock: true
+          model: openai.gpt-oss-120b
+          prompt: "Summarize the README of this repo."
+```
+
+Notes:
+
+- `bedrock-base-url` may be used to override the provider `base_url` (for a non-default region or custom endpoint). Leave empty to use the Codex CLI's built-in default.
+- Since no `openai-api-key` is passed, the proxy-related guidance in [Protecting your `OPENAI_API_KEY`](./docs/security.md#protecting-your-openai_api_key) does not apply, but the standard `safety-strategy` options still govern Codex's privileges on the runner.
+- See [`examples/amazon-bedrock.yml`](./examples/amazon-bedrock.yml) for a complete runnable workflow.
 
 ## Version History
 
