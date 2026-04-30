@@ -217,6 +217,7 @@ Notes:
 
 - `bedrock-base-url` may be used to override the provider `base_url` (for a non-default region or custom endpoint). Leave empty to use the Codex CLI's built-in default.
 - Since no `openai-api-key` is passed, the proxy-related guidance in [Protecting your `OPENAI_API_KEY`](./docs/security.md#protecting-your-openai_api_key) does not apply, but the standard `safety-strategy` options still govern Codex's privileges on the runner.
+- See [`examples/amazon-bedrock.yml`](./examples/amazon-bedrock.yml) for a complete runnable workflow.
 
 ## Version History
 
