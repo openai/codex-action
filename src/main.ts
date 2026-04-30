@@ -16,6 +16,7 @@ import { dropSudo } from "./dropSudo";
 import { ensureActorHasWriteAccess } from "./checkActorPermissions";
 import parseArgsStringToArgv from "string-argv";
 import { writeProxyConfig } from "./writeProxyConfig";
+import { writeBedrockConfig } from "./writeBedrockConfig";
 import { checkOutput } from "./checkOutput";
 
 export async function main() {
@@ -93,6 +94,36 @@ export async function main() {
       }) => {
         const safetyStrategy = toSafetyStrategy(options.safetyStrategy);
         await writeProxyConfig(options.codexHome, options.port, safetyStrategy);
+      }
+    );
+
+  program
+    .command("write-bedrock-config")
+    .description(
+      "Write the Amazon Bedrock model provider config into CODEX_HOME/config.toml"
+    )
+    .requiredOption("--codex-home <DIRECTORY>", "Path to Codex home directory")
+    .requiredOption(
+      "--safety-strategy <strategy>",
+      "Safety strategy to use. One of 'drop-sudo', 'read-only', 'unprivileged-user', or 'unsafe'."
+    )
+    .option(
+      "--base-url <URL>",
+      "Optional base_url override for the amazon-bedrock model provider.",
+      ""
+    )
+    .action(
+      async (options: {
+        codexHome: string;
+        safetyStrategy: string;
+        baseUrl: string;
+      }) => {
+        const safetyStrategy = toSafetyStrategy(options.safetyStrategy);
+        await writeBedrockConfig(
+          options.codexHome,
+          safetyStrategy,
+          emptyAsNull(options.baseUrl)
+        );
       }
     );
 
