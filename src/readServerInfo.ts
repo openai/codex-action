@@ -1,5 +1,6 @@
 import * as core from "@actions/core";
 import * as fs from "fs/promises";
+import { ensureValidPort } from "./ports";
 
 /**
  * In theory, this is not called until `serverInfoFile` is non-empty, but we
@@ -10,11 +11,9 @@ export async function readServerInfo(serverInfoFile: string): Promise<void> {
     try {
       const contents = await fs.readFile(serverInfoFile, { encoding: "utf8" });
       const { port } = JSON.parse(contents);
-      if (typeof port !== "number") {
-        continue;
-      }
+      const parsedPort = ensureValidPort(port);
 
-      core.setOutput("port", port.toString());
+      core.setOutput("port", parsedPort.toString());
       return;
     } catch (error) {
       console.error(`Error reading server info: ${error}`);
