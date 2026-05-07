@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -29,27 +29,55 @@ function runWriteProxyConfig(codexHome, port) {
 
 test("write-proxy-config replaces prior managed config on repeated runs", async () => {
   const codexHome = await mkdtemp(path.join(os.tmpdir(), "codex-home-"));
-  const configPath = path.join(codexHome, "config.toml");
+  try {
+    const configPath = path.join(codexHome, "config.toml");
 
-  await writeFile(configPath, 'approval_policy = "never"\n', "utf8");
+    await writeFile(configPath, 'approval_policy = "never"\n', "utf8");
 
-  let result = runWriteProxyConfig(codexHome, 1234);
-  assert.equal(result.status, 0, result.stderr);
+    let result = runWriteProxyConfig(codexHome, 1234);
+    assert.equal(result.status, 0, result.stderr);
 
-  result = runWriteProxyConfig(codexHome, 4321);
-  assert.equal(result.status, 0, result.stderr);
+    result = runWriteProxyConfig(codexHome, 4321);
+    assert.equal(result.status, 0, result.stderr);
 
-  const config = await readFile(configPath, "utf8");
+    const config = await readFile(configPath, "utf8");
 
-  assert.equal(
-    (config.match(/model_provider = "codex-action-responses-proxy"/g) ?? []).length,
-    1,
-  );
-  assert.equal(
-    (config.match(/\[model_providers\.codex-action-responses-proxy\]/g) ?? []).length,
-    1,
-  );
-  assert.match(config, /base_url = "http:\/\/127\.0\.0\.1:4321\/v1"/);
-  assert.doesNotMatch(config, /base_url = "http:\/\/127\.0\.0\.1:1234\/v1"/);
-  assert.match(config, /approval_policy = "never"/);
+    assert.equal(
+      (config.match(/model_provider = "codex-action-responses-proxy"/g) ?? []).length,
+      1,
+    );
+    assert.equal(
+      (config.match(/\[model_providers\.codex-action-responses-proxy\]/g) ?? []).length,
+      1,
+    );
+    assert.match(config, /base_url = "http:\/\/127\.0\.0\.1:4321\/v1"/);
+    assert.doesNotMatch(config, /base_url = "http:\/\/127\.0\.0\.1:1234\/v1"/);
+    assert.match(config, /approval_policy = "never"/);
+  } finally {
+    await rm(codexHome, { recursive: true, force: true });
+  }
+});
+
+test("write-proxy-config does not duplicate a user-defined model_provider", async () => {
+  const codexHome = await mkdtemp(path.join(os.tmpdir(), "codex-home-"));
+  try {
+    const configPath = path.join(codexHome, "config.toml");
+    await writeFile(configPath, 'model_provider = "custom-provider"\napproval_policy = "never"\n', "utf8");
+
+    const result = runWriteProxyConfig(codexHome, 1234);
+    assert.equal(result.status, 0, result.stderr);
+
+    const config = await readFile(configPath, "utf8");
+
+    // No duplicate model_provider keys — would be invalid TOML.
+    assert.equal(
+      (config.match(/^model_provider\s*=/gm) ?? []).length,
+      1,
+      "duplicate model_provider keys produce invalid TOML",
+    );
+    assert.match(config, /model_provider = "codex-action-responses-proxy"/);
+    assert.match(config, /approval_policy = "never"/);
+  } finally {
+    await rm(codexHome, { recursive: true, force: true });
+  }
 });

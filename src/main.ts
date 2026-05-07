@@ -313,10 +313,11 @@ function parseExtraArgs(value: string): Array<string> {
     return [];
   }
 
-  if (value.startsWith("[")) {
+  const trimmed = value.trimStart();
+  if (trimmed.startsWith("[")) {
     let parsed: unknown;
     try {
-      parsed = JSON.parse(value);
+      parsed = JSON.parse(trimmed);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "unknown JSON parse error";
