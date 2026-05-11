@@ -35,6 +35,7 @@ jobs:
         with:
           # Explicitly check out the PR's merge commit.
           ref: refs/pull/${{ github.event.pull_request.number }}/merge
+          persist-credentials: false
 
       - name: Pre-fetch base and head refs for the PR
         env:
