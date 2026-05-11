@@ -110,6 +110,7 @@ jobs:
 | `model`                  | Model the agent should use. Leave empty to let Codex pick its default.                                                                         | `""`        |
 | `effort`                 | Reasoning effort the agent should use. Leave empty to let Codex pick its default.                                                              | `""`        |
 | `codex-home`             | Directory to use as the Codex CLI home (config/cache). Uses the CLI default when empty.                                                        | `""`        |
+| `project-instructions-mode` | Source for project instructions. `workspace` preserves current checked-out doc loading; `default-branch` opts into trusted default-branch `AGENTS.override.md` / `AGENTS.md` files. | `workspace` |
 | `safety-strategy`        | Controls how the action restricts Codex privileges. See [Safety strategy](#safety-strategy).                                                   | `drop-sudo` |
 | `codex-user`             | Username to run Codex as when `safety-strategy` is `unprivileged-user`.                                                                        | `""`        |
 | `allow-users`            | List of GitHub usernames who can trigger the action in addition to those who have write access to the repo.                                    | `""`        |
@@ -126,6 +127,13 @@ See [Protecting your `OPENAI_API_KEY`](./docs/security.md#protecting-your-openai
 - **`unprivileged-user`** — Runs Codex as the user provided via `codex-user`. Use this if you manage your own runner with a pre-created unprivileged account. Ensure the user can read the repository checkout and any files Codex needs. See [`unprivileged-user.yml`](./examples/unprivileged-user.yml) for an example of how to configure such an account on `ubuntu-latest`.
 - **`read-only`** — Executes Codex in a read-only sandbox. Codex can view files but cannot mutate the filesystem or access the network directly. The OpenAI API key still flows through the proxy, so Codex could read it if it can reach process memory.
 - **`unsafe`** — No privilege reduction. Codex runs as the default `runner` user (which typically has `sudo`). Only use this when you fully trust the prompt. On Windows runners this is the only supported choice and the action will fail if another option is provided.
+
+## Project Instructions Mode
+
+`project-instructions-mode` controls whether Codex reads repository instruction files from the checked-out workspace or from a trusted branch. When this input is omitted, the action preserves its current behavior.
+
+- **`workspace` (default)** — Preserves the existing branch-local behavior and lets Codex discover project docs directly from the checkout.
+- **`default-branch`** — Opts into trusted instruction loading. The action fetches trusted `AGENTS.override.md` / `AGENTS.md` files from the repository default branch along the path from the repository root to `working-directory`, writes them into `CODEX_HOME`, disables checked-out project-doc discovery, and clears Codex project trust for that run so project-local `.codex/config.toml` is not loaded. This keeps pull request-controlled instruction/config files out of the model-visible instruction channel for workflows that enable it. In this mode, `codex-home` must stay outside the GitHub workspace.
 
 ### Operating system support
 

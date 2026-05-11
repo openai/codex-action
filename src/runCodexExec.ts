@@ -4,6 +4,7 @@ import path from "path";
 import os from "os";
 import { setOutput } from "@actions/core";
 import { checkOutput } from "./checkOutput";
+import type { ProjectInstructionsMode } from "./projectInstructions";
 
 export type PromptSource =
   | {
@@ -48,6 +49,7 @@ export async function runCodexExec({
   safetyStrategy,
   codexUser,
   sandbox,
+  projectInstructionsMode,
 }: {
   prompt: PromptSource;
   codexHome: string | null;
@@ -60,6 +62,7 @@ export async function runCodexExec({
   safetyStrategy: SafetyStrategy;
   codexUser: string | null;
   sandbox: SandboxMode;
+  projectInstructionsMode: ProjectInstructionsMode;
 }): Promise<void> {
   let input: string;
   switch (prompt.type) {
@@ -142,6 +145,11 @@ export async function runCodexExec({
   }
 
   command.push(...extraArgs);
+
+  if (projectInstructionsMode === "default-branch") {
+    command.push("--config", "projects={}");
+    command.push("--config", "project_doc_max_bytes=0");
+  }
 
   command.push("--sandbox", sandboxMode);
 
