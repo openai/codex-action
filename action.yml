@@ -59,6 +59,19 @@ inputs:
     description: "Directory to use as the Codex home directory. If empty, the default Codex home directory will be used."
     required: false
     default: ""
+  project-instructions-mode:
+    description: |
+      Controls where Codex project instructions come from.
+
+      * `workspace` (default) Load project docs from the checked-out workspace,
+        preserving the current behavior when this input is omitted.
+      * `default-branch` Load trusted `AGENTS.override.md` / `AGENTS.md`
+        files from the repository default branch for the repository path that
+        contains `working-directory`, ignore checked-out project docs, and
+        disable project-local Codex config for the run. `codex-home` must stay
+        outside the GitHub workspace in this mode.
+    required: false
+    default: "workspace"
   safety-strategy:
     description: |
       Specify one of the following options (on Windows, the only supported option is `unsafe`):
@@ -320,6 +333,26 @@ runs:
         fi
         echo "Confirmed sudo privilege is disabled."
 
+    - name: Prepare project instructions
+      if: ${{ (inputs.prompt != '' || inputs['prompt-file'] != '') && inputs['project-instructions-mode'] == 'default-branch' }}
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        CODEX_HOME: ${{ steps.resolve_home.outputs.codex-home }}
+        CODEX_WORKING_DIRECTORY: ${{ inputs['working-directory'] || github.workspace }}
+        CODEX_PROJECT_INSTRUCTIONS_MODE: ${{ inputs['project-instructions-mode'] }}
+        CODEX_SAFETY_STRATEGY: ${{ inputs['safety-strategy'] }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        GITHUB_TOKEN: ${{ github.token }}
+        GITHUB_WORKSPACE: ${{ github.workspace }}
+      run: |
+        node "$ACTION_PATH/dist/main.js" prepare-project-instructions \
+            --codex-home "$CODEX_HOME" \
+            --cd "$CODEX_WORKING_DIRECTORY" \
+            --workspace "$GITHUB_WORKSPACE" \
+            --mode "$CODEX_PROJECT_INSTRUCTIONS_MODE" \
+            --safety-strategy "$CODEX_SAFETY_STRATEGY"
+
     - name: Run codex exec
       id: run_codex
       if: ${{ inputs.prompt != '' || inputs['prompt-file'] != '' }}
@@ -337,6 +370,7 @@ runs:
         CODEX_EFFORT: ${{ inputs.effort }}
         CODEX_SAFETY_STRATEGY: ${{ inputs['safety-strategy'] }}
         CODEX_USER: ${{ inputs['codex-user'] }}
+        CODEX_PROJECT_INSTRUCTIONS_MODE: ${{ inputs['project-instructions-mode'] }}
         ACTION_PATH: ${{ github.action_path }}
         FORCE_COLOR: 1
       shell: bash
@@ -354,4 +388,5 @@ runs:
             --model "$CODEX_MODEL" \
             --effort "$CODEX_EFFORT" \
             --safety-strategy "$CODEX_SAFETY_STRATEGY" \
-            --codex-user "$CODEX_USER"
+            --codex-user "$CODEX_USER" \
+            --project-instructions-mode "$CODEX_PROJECT_INSTRUCTIONS_MODE"
