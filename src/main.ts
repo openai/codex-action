@@ -15,6 +15,7 @@ import {
 import { dropSudo } from "./dropSudo";
 import { ensureActorHasWriteAccess } from "./checkActorPermissions";
 import parseArgsStringToArgv from "string-argv";
+import { parsePort } from "./ports";
 import { writeProxyConfig } from "./writeProxyConfig";
 import { checkOutput } from "./checkOutput";
 
@@ -80,7 +81,7 @@ export async function main() {
       "Write the OpenAI Proxy model provider config into CODEX_HOME/config.toml"
     )
     .requiredOption("--codex-home <DIRECTORY>", "Path to Codex home directory")
-    .requiredOption("--port <port>", "Proxy server port", parseIntStrict)
+    .requiredOption("--port <port>", "Proxy server port", parsePort)
     .requiredOption(
       "--safety-strategy <strategy>",
       "Safety strategy to use. One of 'drop-sudo', 'read-only', 'unprivileged-user', or 'unsafe'."
@@ -307,21 +308,29 @@ export async function main() {
   program.parse();
 }
 
-function parseIntStrict(value: string): number {
-  const parsed = parseInt(value, 10);
-  if (isNaN(parsed)) {
-    throw new Error(`Invalid integer: ${value}`);
-  }
-  return parsed;
-}
-
 function parseExtraArgs(value: string): Array<string> {
   if (value.length === 0) {
     return [];
   }
 
-  if (value.startsWith("[")) {
-    return JSON.parse(value);
+  const trimmed = value.trimStart();
+  if (trimmed.startsWith("[")) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "unknown JSON parse error";
+      throw new Error(`Invalid --extra-args JSON: ${message}`);
+    }
+
+    if (!Array.isArray(parsed) || !parsed.every((entry) => typeof entry === "string")) {
+      throw new Error(
+        "Invalid --extra-args JSON: expected a JSON array of strings."
+      );
+    }
+
+    return parsed;
   } else {
     return parseArgsStringToArgv(value);
   }

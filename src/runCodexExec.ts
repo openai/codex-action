@@ -188,7 +188,7 @@ export async function runCodexExec({
       });
     });
   } finally {
-    await cleanupOutputSchema(resolvedOutputSchema);
+    await cleanupOutputSchema(resolvedOutputSchema, runAsUser);
   }
 }
 
@@ -280,14 +280,15 @@ async function resolveOutputSchema(
     case "inline": {
       const dir = await createTempDir("codex-output-schema-", runAsUser);
       const file = path.join(dir, "schema.json");
-      await writeFile(file, schema.content);
+      await writeTempFile(file, schema.content, runAsUser);
       return { type: "temp", file, dir };
     }
   }
 }
 
 async function cleanupOutputSchema(
-  schema: ResolvedOutputSchema | null
+  schema: ResolvedOutputSchema | null,
+  runAsUser: string | null
 ): Promise<void> {
   if (schema == null) {
     return;
@@ -297,8 +298,37 @@ async function cleanupOutputSchema(
     case "explicit":
       return;
     case "temp":
-      await rm(schema.dir, { recursive: true, force: true });
+      if (runAsUser == null) {
+        await rm(schema.dir, { recursive: true, force: true });
+      } else {
+        await checkOutput(["sudo", "rm", "-rf", schema.dir]);
+      }
       return;
+  }
+}
+
+async function writeTempFile(
+  file: string,
+  contents: string,
+  runAsUser: string | null
+): Promise<void> {
+  if (runAsUser == null) {
+    await writeFile(file, contents);
+    return;
+  }
+
+  const stagingDir = await mkdtemp(
+    path.join(os.tmpdir(), "codex-output-schema-staging-")
+  );
+  const stagingFile = path.join(stagingDir, path.basename(file));
+
+  try {
+    await writeFile(stagingFile, contents);
+    await checkOutput(["sudo", "cp", stagingFile, file]);
+    await checkOutput(["sudo", "chown", runAsUser, file]);
+    await checkOutput(["sudo", "chmod", "600", file]);
+  } finally {
+    await rm(stagingDir, { recursive: true, force: true });
   }
 }
 
