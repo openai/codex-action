@@ -14,7 +14,8 @@ There is a lot of valuable context that can be used to fuel your invocation of C
 
 - **Pull requests**: the title of a pull request is often clear, but it is fairly easy to hide information in a pull request body using an HTML comment (`<!-- -->`) that is readily available to the model but effectively invisible to the user.
 - **Commit messages**: a pull request can be composed of many commits. The messages for individual commits often go unnoticed, but could read by Codex.
-- **Screenshots** screenshots and other media have been known to be used as vehicles for prompt injection.
+- **Repository instruction files**: when Codex operates on pull request-controlled content, files such as `AGENTS.md`, `AGENTS.override.md`, or configured fallback project docs from that content should be considered part of the untrusted input surface.
+- **Screenshots**: screenshots and other media have been known to be used as vehicles for prompt injection.
 
 ## Avoid shell injection in workflow steps
 
