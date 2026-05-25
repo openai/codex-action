@@ -188,7 +188,7 @@ export async function runCodexExec({
       });
     });
   } finally {
-    await cleanupOutputSchema(resolvedOutputSchema);
+    await cleanupOutputSchema(resolvedOutputSchema, runAsUser);
   }
 }
 
@@ -280,14 +280,15 @@ async function resolveOutputSchema(
     case "inline": {
       const dir = await createTempDir("codex-output-schema-", runAsUser);
       const file = path.join(dir, "schema.json");
-      await writeFile(file, schema.content);
+      await writeFileAsUser(file, schema.content, runAsUser);
       return { type: "temp", file, dir };
     }
   }
 }
 
 async function cleanupOutputSchema(
-  schema: ResolvedOutputSchema | null
+  schema: ResolvedOutputSchema | null,
+  runAsUser: string | null
 ): Promise<void> {
   if (schema == null) {
     return;
@@ -297,7 +298,11 @@ async function cleanupOutputSchema(
     case "explicit":
       return;
     case "temp":
-      await rm(schema.dir, { recursive: true, force: true });
+      if (runAsUser == null) {
+        await rm(schema.dir, { recursive: true, force: true });
+      } else {
+        await checkOutput(["sudo", "rm", "-rf", schema.dir]);
+      }
       return;
   }
 }
@@ -321,6 +326,44 @@ async function createTempDir(
       ])
     ).trim();
   }
+}
+
+async function writeFileAsUser(
+  file: string,
+  contents: string,
+  runAsUser: string | null
+): Promise<void> {
+  if (runAsUser == null) {
+    await writeFile(file, contents);
+    return;
+  }
+
+  // `createTempDir` made the temp directory by running `mktemp` as `runAsUser`,
+  // so it is owned by that user with `0700` permissions. The current process
+  // (the action's user) is not the owner and cannot write into it, so we must
+  // create the file as `runAsUser` as well. Piping the contents to `tee` run
+  // under `sudo -u` writes the file as the target user, mirroring how the
+  // final-message file (written by the Codex process) is later read back via
+  // `sudo -u <user> cat`.
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn("sudo", ["-u", runAsUser, "tee", file], {
+      env: process.env,
+      stdio: ["pipe", "ignore", "inherit"],
+    });
+
+    child.on("error", reject);
+
+    child.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(`sudo tee exited with code ${code}`));
+        return;
+      }
+      resolve();
+    });
+
+    child.stdin.write(contents);
+    child.stdin.end();
+  });
 }
 
 async function determineSandboxMode({
