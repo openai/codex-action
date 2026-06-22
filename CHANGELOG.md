@@ -1,5 +1,9 @@
 # codex-action Changelog
 
+## [v1.9](https://github.com/openai/codex-action/tree/v1.9) (2026-06-22)
+
+- [#85](https://github.com/openai/codex-action/pull/85) update the internal `setup-node` pin to `v6.3.0`
+
 ## [v1.8](https://github.com/openai/codex-action/tree/v1.8) (2026-04-29)
 
 - [#91](https://github.com/openai/codex-action/pull/91) tighten what bots are allowed
