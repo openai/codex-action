@@ -6,6 +6,28 @@ import { checkOutput } from "./checkOutput";
 
 const MODEL_PROVIDER = "codex-action-responses-proxy";
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function removeGeneratedProxyConfig(config: string): string {
+  const provider = escapeRegExp(MODEL_PROVIDER);
+  const headerPattern = new RegExp(
+    `# Added by codex-action\\.\\nmodel_provider = "${provider}"\\n+`,
+    "g"
+  );
+  const tablePattern = new RegExp(
+    `\\n*# Added by codex-action\\.\\n` +
+      `\\[model_providers\\.${provider}\\]\\n` +
+      `name = "Codex Action Responses Proxy"\\n` +
+      `base_url = "http://127\\.0\\.0\\.1:\\d+/v1"\\n` +
+      `wire_api = "responses"\\n?`,
+    "g"
+  );
+
+  return config.replace(headerPattern, "").replace(tablePattern, "");
+}
+
 export async function writeProxyConfig(
   codexHome: string,
   port: number,
@@ -19,6 +41,7 @@ export async function writeProxyConfig(
   } catch {
     existing = "";
   }
+  existing = removeGeneratedProxyConfig(existing);
 
   const header = `# Added by codex-action.
 model_provider = "${MODEL_PROVIDER}"
