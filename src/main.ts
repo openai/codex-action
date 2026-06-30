@@ -8,6 +8,7 @@ import { readServerInfo } from "./readServerInfo";
 import {
   SandboxMode,
   OutputSchemaSource,
+  Provider,
   PromptSource,
   runCodexExec,
   SafetyStrategy,
@@ -160,6 +161,10 @@ export async function main() {
       "--codex-user <user>",
       "User to run codex exec as when using the 'unprivileged-user' safety strategy."
     )
+    .requiredOption(
+      "--provider <provider>",
+      "Model provider to use. One of 'openai' or 'amazon-bedrock'."
+    )
     .action(
       async (options: {
         prompt: string;
@@ -175,6 +180,7 @@ export async function main() {
         effort: string;
         safetyStrategy: string;
         codexUser: string;
+        provider: string;
       }) => {
         const {
           prompt,
@@ -190,6 +196,7 @@ export async function main() {
           effort,
           safetyStrategy,
           codexUser,
+          provider,
         } = options;
 
         const normalizedPrompt = emptyAsNull(prompt);
@@ -250,6 +257,7 @@ export async function main() {
           effort: emptyAsNull(effort),
           safetyStrategy: toSafetyStrategy(safetyStrategy),
           codexUser: emptyAsNull(codexUser),
+          provider: toProvider(provider),
         });
       }
     );
@@ -337,6 +345,18 @@ function toSafetyStrategy(value: string): SafetyStrategy {
     default:
       throw new Error(
         `Invalid safety strategy: ${value}. Must be one of 'drop-sudo', 'read-only', 'unprivileged-user', or 'unsafe'.`
+      );
+  }
+}
+
+function toProvider(value: string): Provider {
+  switch (value) {
+    case "openai":
+    case "amazon-bedrock":
+      return value;
+    default:
+      throw new Error(
+        `Invalid provider: ${value}. Must be one of 'openai' or 'amazon-bedrock'.`
       );
   }
 }

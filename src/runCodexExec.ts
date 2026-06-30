@@ -21,6 +21,8 @@ export type SafetyStrategy =
   | "unprivileged-user"
   | "unsafe";
 
+export type Provider = "openai" | "amazon-bedrock";
+
 export type SandboxMode =
   | "read-only"
   | "workspace-write"
@@ -48,6 +50,7 @@ export async function runCodexExec({
   safetyStrategy,
   codexUser,
   sandbox,
+  provider,
 }: {
   prompt: PromptSource;
   codexHome: string | null;
@@ -60,6 +63,7 @@ export async function runCodexExec({
   safetyStrategy: SafetyStrategy;
   codexUser: string | null;
   sandbox: SandboxMode;
+  provider: Provider;
 }): Promise<void> {
   let input: string;
   switch (prompt.type) {
@@ -139,6 +143,10 @@ export async function runCodexExec({
     // https://github.com/openai/codex/blob/00debb6399eb51c4b9273f0bc012912c42fe6c91/docs/config.md#config
     // https://github.com/openai/codex/blob/00debb6399eb51c4b9273f0bc012912c42fe6c91/docs/config.md#model_reasoning_effort
     command.push("--config", `model_reasoning_effort="${effort}"`);
+  }
+
+  if (provider === "amazon-bedrock") {
+    command.push("--config", `model_provider="amazon-bedrock"`);
   }
 
   command.push(...extraArgs);
