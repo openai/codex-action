@@ -1,5 +1,9 @@
 # codex-action Changelog
 
+## [v1.10](https://github.com/openai/codex-action/tree/v1.10) (2026-07-02)
+
+- [#113](https://github.com/openai/codex-action/pull/113) add Codex permission profile support
+
 ## [v1.9](https://github.com/openai/codex-action/tree/v1.9) (2026-06-22)
 
 - [#85](https://github.com/openai/codex-action/pull/85) update the internal `setup-node` pin to `v6.3.0`
