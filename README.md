@@ -15,7 +15,9 @@ In the following example, we define a workflow that is triggered whenever a user
 - Runs Codex with a `prompt` that includes the details specific to the PR.
 - Takes the output from Codex and posts it as a comment on the PR.
 
-See [`security.md`](./docs/security.md) for tips on using `openai/codex-action` securely.
+See [`security.md`](./docs/security.md) for tips on using `openai/codex-action` securely and the
+[Codex permissions documentation](https://developers.openai.com/codex/permissions) for configuring
+filesystem and network access.
 
 ```yaml
 name: Perform a code review when a pull request is created.
@@ -48,14 +50,15 @@ jobs:
             "+refs/pull/$PR_NUMBER/head"
 
       # If you want Codex to build and run code, install any dependencies that
-      # need to be downloaded before the "Run Codex" step because Codex's
-      # default sandbox disables network access.
+      # need to be downloaded before the "Run Codex" step. The recommended
+      # :workspace permission profile does not grant network access.
 
       - name: Run Codex
         id: run_codex
         uses: openai/codex-action@v1
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          permission-profile: ":workspace"
           prompt: |
             This is PR #${{ github.event.pull_request.number }} for ${{ github.repository }}.
 
@@ -103,7 +106,8 @@ jobs:
 | `prompt-file`            | Path (relative to the repository root) of a file that contains the prompt. Provide this or `prompt`.                                           | `""`        |
 | `output-file`            | File where the final Codex message is written. Leave empty to skip writing a file.                                                             | `""`        |
 | `working-directory`      | Directory passed to `codex exec --cd`. Defaults to the repository root.                                                                        | `""`        |
-| `sandbox`                | Sandbox mode for Codex. One of `workspace-write` (default), `read-only` or `danger-full-access`.                                               | `""`        |
+| `sandbox`                | Legacy sandbox mode. Prefer `permission-profile: ":workspace"` for new workflows. Mutually exclusive with `permission-profile`.               | `""`        |
+| `permission-profile`     | Built-in or configured [Codex permission profile](https://developers.openai.com/codex/permissions) selected through `default_permissions`.      | `""`        |
 | `codex-version`          | Version of `@openai/codex` to install.                                                                                                         | `""`        |
 | `codex-args`             | Extra arguments forwarded to `codex exec`. Accepts JSON arrays (`["--flag", "value"]`) or shell-style strings.                                 | `""`        |
 | `output-schema`          | Inline schema contents written to a temp file and passed to `codex exec --output-schema`. Mutually exclusive with `output-schema-file`.        | `""`        |
@@ -116,6 +120,39 @@ jobs:
 | `allow-users`            | List of GitHub usernames who can trigger the action in addition to those who have write access to the repo.                                    | `""`        |
 | `allow-bots`             | Allow runs triggered by trusted GitHub bot accounts (`github-actions[bot]`) to bypass the write-access check.                                  | `false`     |
 | `allow-bot-users`        | List of GitHub bot usernames that can bypass the write-access check. `*` is not supported; list trusted bots explicitly.                       | `""`        |
+
+## Permission profiles
+
+Codex permission profiles independently describe filesystem and network access. For workflows that
+need to edit the checked-out repository, prefer `permission-profile: ":workspace"` over relying on
+the action's legacy `workspace-write` fallback. Use `:read-only` for read-only workflows, or select a
+named profile defined in the `config.toml` under `codex-home` when the workflow needs a more specific
+policy. See the
+[Codex permissions documentation](https://developers.openai.com/codex/permissions) for the profile
+schema and enforcement details. Permission profiles are beta and require Codex CLI `0.138.0` or
+later; do not select one while pinning an older `codex-version`.
+
+The action does not pass `--sandbox` when `permission-profile` is set because the profile and legacy
+sandbox systems do not compose. Supplying both inputs fails before Codex starts. The
+`safety-strategy: read-only` option also forces the legacy read-only sandbox and therefore cannot be
+combined with a permission profile. Keep `safety-strategy: drop-sudo` or use a deliberately
+configured unprivileged user when selecting a profile.
+
+For backward compatibility, omitting both `permission-profile` and `sandbox` still runs Codex with
+the legacy `workspace-write` sandbox. Existing callers that set `sandbox` continue to use the legacy
+model. Do not set `sandbox_mode` in `codex-args` or a loaded `config.toml` when selecting a permission
+profile; Codex treats any legacy sandbox setting as opting out of permission profiles.
+
+For example, use the built-in `:workspace` profile for a workflow that needs to modify the checkout:
+
+```yaml
+- name: Run Codex with a permission profile
+  uses: openai/codex-action@v1
+  with:
+    openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+    permission-profile: ":workspace"
+    prompt: Review the public change.
+```
 
 ## Safety Strategy
 
@@ -155,7 +192,7 @@ jobs:
 - Run this action after `actions/checkout@v5` so Codex has access to your repository contents.
 - To use a non-default Responses endpoint (for example Azure OpenAI), set `responses-api-endpoint` to the provider's URL while keeping `openai-api-key` populated; the proxy will still send `Authorization: Bearer <key>` upstream.
 - If you want Codex to have access to a narrow set of privileged functionality, consider running a local MCP server that can perform these actions and configure Codex to use it.
-- If you need more control over the CLI invocation, pass flags through `codex-args` or create a `config.toml` in `codex-home`.
+- If you need more control over the CLI invocation, pass flags through `codex-args` or create a `config.toml` in `codex-home`. Prefer a [permission profile](https://developers.openai.com/codex/permissions), starting with `:workspace` for workspace editing, over legacy sandbox flags for new integrations.
 - Once `openai/codex-action` is run once with `openai-api-key`, you can also call `codex` from subsequent scripts in your job. (You can omit `prompt` and `prompt-file` from the action in this case.)
 
 ## Azure

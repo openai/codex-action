@@ -28,9 +28,18 @@ inputs:
     default: ""
   sandbox:
     description: |
-      Sandbox mode for Codex. One of `workspace-write` (default), `read-only` or `danger-full-access`.
+      Legacy sandbox mode for Codex. One of `workspace-write`, `read-only` or `danger-full-access`.
+      Prefer `permission-profile: ":workspace"` for new workflows. Leave empty to use the legacy
+      `workspace-write` fallback unless `permission-profile` is set.
     required: false
-    default: "workspace-write"
+    default: ""
+  permission-profile:
+    description: |
+      Codex permission profile to select through `default_permissions`, such as `:read-only`,
+      `:workspace`, or a named profile defined in `codex-home/config.toml`. Mutually exclusive
+      with `sandbox`. See https://developers.openai.com/codex/permissions.
+    required: false
+    default: ""
   codex-version:
     description: "Version of `@openai/codex` to install."
     required: false
@@ -330,6 +339,7 @@ runs:
         CODEX_HOME: ${{ steps.resolve_home.outputs.codex-home }}
         CODEX_WORKING_DIRECTORY: ${{ inputs['working-directory'] || github.workspace }}
         CODEX_SANDBOX: ${{ inputs.sandbox }}
+        CODEX_PERMISSION_PROFILE: ${{ inputs['permission-profile'] }}
         CODEX_ARGS: ${{ inputs['codex-args'] }}
         CODEX_OUTPUT_SCHEMA: ${{ inputs['output-schema'] }}
         CODEX_OUTPUT_SCHEMA_FILE: ${{ inputs['output-schema-file'] }}
@@ -351,6 +361,7 @@ runs:
             --output-schema "$CODEX_OUTPUT_SCHEMA" \
             --output-schema-file "$CODEX_OUTPUT_SCHEMA_FILE" \
             --sandbox "$CODEX_SANDBOX" \
+            --permission-profile "$CODEX_PERMISSION_PROFILE" \
             --model "$CODEX_MODEL" \
             --effort "$CODEX_EFFORT" \
             --safety-strategy "$CODEX_SAFETY_STRATEGY" \
