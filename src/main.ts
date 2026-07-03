@@ -146,13 +146,15 @@ export async function main() {
       "--output-schema <SCHEMA>",
       "Inline schema contents to pass to `codex exec --output-schema`."
     )
-    .requiredOption(
+    .option(
       "--sandbox <SANDBOX>",
-      "Legacy sandbox mode override to pass to `codex exec` (may be empty)."
+      "Legacy sandbox mode override to pass to `codex exec` (may be empty).",
+      ""
     )
-    .requiredOption(
+    .option(
       "--permission-profile <PROFILE>",
-      "Permission profile to select through `default_permissions` (may be empty)."
+      "Permission profile to select through `default_permissions` (may be empty).",
+      ""
     )
     .requiredOption("--model <model>", "Model the agent should use")
     .requiredOption("--effort <effort>", "Reasoning effort the agent should use")

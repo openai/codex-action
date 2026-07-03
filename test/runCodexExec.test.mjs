@@ -23,6 +23,8 @@ const mainPath = fileURLToPath(new URL("../dist/main.js", import.meta.url));
 function runCodexExecWithFakeCodex({
   sandbox = "",
   permissionProfile = "",
+  includeSandbox = true,
+  includePermissionProfile = true,
   extraArgs = "",
   safetyStrategy = "drop-sudo",
 } = {}) {
@@ -56,40 +58,46 @@ writeFileSync(args[outputIndex + 1], "fake final message\\n");
     "utf8"
   );
 
+  const cliArgs = [
+    mainPath,
+    "run-codex-exec",
+    "--prompt",
+    "test prompt",
+    "--prompt-file",
+    "",
+    "--codex-home",
+    "",
+    "--cd",
+    tempDir,
+    "--extra-args",
+    extraArgs,
+    "--output-file",
+    outputPath,
+    "--output-schema-file",
+    "",
+    "--output-schema",
+    "",
+  ];
+  if (includeSandbox) {
+    cliArgs.push("--sandbox", sandbox);
+  }
+  if (includePermissionProfile) {
+    cliArgs.push("--permission-profile", permissionProfile);
+  }
+  cliArgs.push(
+    "--model",
+    "",
+    "--effort",
+    "",
+    "--safety-strategy",
+    safetyStrategy,
+    "--codex-user",
+    ""
+  );
+
   const result = spawnSync(
     process.execPath,
-    [
-      mainPath,
-      "run-codex-exec",
-      "--prompt",
-      "test prompt",
-      "--prompt-file",
-      "",
-      "--codex-home",
-      "",
-      "--cd",
-      tempDir,
-      "--extra-args",
-      extraArgs,
-      "--output-file",
-      outputPath,
-      "--output-schema-file",
-      "",
-      "--output-schema",
-      "",
-      "--sandbox",
-      sandbox,
-      "--permission-profile",
-      permissionProfile,
-      "--model",
-      "",
-      "--effort",
-      "",
-      "--safety-strategy",
-      safetyStrategy,
-      "--codex-user",
-      "",
-    ],
+    cliArgs,
     {
       encoding: "utf8",
       env: {
@@ -117,8 +125,50 @@ test("preserves workspace-write as the default legacy sandbox", () => {
   assert.deepEqual(capturedArgs.slice(-2), ["--sandbox", "workspace-write"]);
 });
 
-test("selects a permission profile without passing --sandbox", () => {
+test("allows permission-profile to be omitted", () => {
   const { result, capturedArgs } = runCodexExecWithFakeCodex({
+    includePermissionProfile: false,
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(capturedArgs.slice(-2), ["--sandbox", "workspace-write"]);
+});
+
+test("allows sandbox to be omitted", () => {
+  const { result, capturedArgs } = runCodexExecWithFakeCodex({
+    includeSandbox: false,
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(capturedArgs.slice(-2), ["--sandbox", "workspace-write"]);
+});
+
+test("allows sandbox and permission-profile to both be omitted", () => {
+  const { result, capturedArgs } = runCodexExecWithFakeCodex({
+    includeSandbox: false,
+    includePermissionProfile: false,
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(capturedArgs.slice(-2), ["--sandbox", "workspace-write"]);
+});
+
+test("selects a permission profile with an empty sandbox", () => {
+  const { result, capturedArgs } = runCodexExecWithFakeCodex({
+    permissionProfile: "public-review",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(capturedArgs.includes("--sandbox"), false);
+  assert.deepEqual(capturedArgs.slice(-2), [
+    "--config",
+    'default_permissions="public-review"',
+  ]);
+});
+
+test("selects a permission profile when sandbox is omitted", () => {
+  const { result, capturedArgs } = runCodexExecWithFakeCodex({
+    includeSandbox: false,
     permissionProfile: "public-review",
   });
 
