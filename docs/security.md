@@ -17,6 +17,25 @@ There is a lot of valuable context that can be used to fuel your invocation of C
 - **Repository instruction files**: when Codex operates on pull request-controlled content, files such as `AGENTS.md`, `AGENTS.override.md`, or configured fallback project docs from that content should be considered part of the untrusted input surface.
 - **Screenshots**: screenshots and other media have been known to be used as vehicles for prompt injection.
 
+## Limit command permissions
+
+Use `permission-profile` to select the narrowest filesystem and network policy that still lets Codex
+complete the task. For workflows that edit the checkout, prefer the built-in `:workspace` profile
+over the legacy `sandbox: workspace-write` setting. Use a custom profile when the workflow needs a
+more specific policy. See the
+[Codex permissions documentation](https://developers.openai.com/codex/permissions) for the available
+built-in profiles and configuration schema.
+
+Permission profiles constrain commands that Codex runs; they do not replace the action's
+`safety-strategy`, which controls the privileges of the Codex process itself. Continue to use
+`drop-sudo` or a deliberately configured `unprivileged-user` when a profile grants filesystem writes
+or network access.
+
+Permission profiles and the legacy `sandbox` input do not compose. The action rejects both inputs
+together, but a `sandbox_mode` setting in `codex-args` or a loaded `config.toml` also opts Codex into
+the legacy sandbox model. Review every loaded configuration layer when a workflow is expected to use
+a permission profile.
+
 ## Avoid shell injection in workflow steps
 
 GitHub Actions expands `${{ ... }}` expressions before the shell runs your `run:` script. If you splice untrusted values such as branch names, issue titles, comment bodies, or action inputs directly into the script, those values can break shell quoting and execute arbitrary commands.
