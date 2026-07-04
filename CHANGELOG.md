@@ -1,5 +1,9 @@
 # codex-action Changelog
 
+## [v1.11](https://github.com/openai/codex-action/tree/v1.11) (2026-07-04)
+
+- [#116](https://github.com/openai/codex-action/pull/116) keep the permission profile helper backward compatible
+
 ## [v1.10](https://github.com/openai/codex-action/tree/v1.10) (2026-07-02)
 
 - [#113](https://github.com/openai/codex-action/pull/113) add Codex permission profile support
