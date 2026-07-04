@@ -79,8 +79,9 @@ writeFileSync(args[outputIndex + 1], "fake final message\\n");
       "",
       "--sandbox",
       sandbox,
-      "--permission-profile",
-      permissionProfile,
+      ...(permissionProfile == null
+        ? []
+        : ["--permission-profile", permissionProfile]),
       "--model",
       "",
       "--effort",
@@ -112,6 +113,15 @@ writeFileSync(args[outputIndex + 1], "fake final message\\n");
 
 test("preserves workspace-write as the default legacy sandbox", () => {
   const { result, capturedArgs } = runCodexExecWithFakeCodex();
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(capturedArgs.slice(-2), ["--sandbox", "workspace-write"]);
+});
+
+test("allows permission-profile to be omitted", () => {
+  const { result, capturedArgs } = runCodexExecWithFakeCodex({
+    permissionProfile: null,
+  });
 
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(capturedArgs.slice(-2), ["--sandbox", "workspace-write"]);
