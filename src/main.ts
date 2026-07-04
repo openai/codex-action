@@ -150,9 +150,10 @@ export async function main() {
       "--sandbox <SANDBOX>",
       "Legacy sandbox mode override to pass to `codex exec` (may be empty)."
     )
-    .requiredOption(
+    .option(
       "--permission-profile <PROFILE>",
-      "Permission profile to select through `default_permissions` (may be empty)."
+      "Permission profile to select through `default_permissions` (may be empty).",
+      ""
     )
     .requiredOption("--model <model>", "Model the agent should use")
     .requiredOption("--effort <effort>", "Reasoning effort the agent should use")
