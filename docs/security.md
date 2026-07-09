@@ -56,13 +56,15 @@ Instead, pass those values through `env:` and quote the shell variables that con
 
 If you have effectively opened up your use of `openai/codex-action` to the world by configuring `allow-users: "*"`, you might find yourself the target of API key abuse. For example, if your repository has nothing to do with crypto, but you suddenly see a large influx of GitHub issues asking about mining Bitcoins, there is a good chance that someone is trying to take advantage of the quota for your `OPENAI_API_KEY` to get Codex to do work on their behalf.
 
-## Protecting your `OPENAI_API_KEY`
+## Protecting authentication secrets
 
-No doubt your `OPENAI_API_KEY` is an important secret that you do not want to share with the world. **Be sure to use either `drop-sudo` or `unprivileged-user` to ensure it stays secret!**
+Your Platform API key and ChatGPT personal access token are both sensitive credentials. **Use either `drop-sudo` or `unprivileged-user` to keep the selected credential out of reach of model-invoked code.**
 
-To underscore the importance of specifying either `drop-sudo` or `unprivileged-user` as the `safety-strategy` for `openai/codex-action`, we provide [an example](../examples/test-sandbox-protections.yml) of how **the combination of read-only access to the filesystem and `sudo` can be used to expose your `OPENAI_API_KEY`**. This often surprises developers, as many expect the combination of "read-only access" and no network to be a sufficient safeguard, but this is not the case in the presence of passwordless `sudo` (which is the default on GitHub-hosted runners). Notably, Linux's [procfs](https://en.wikipedia.org/wiki/Procfs) makes a considerable amount of information available via file-read operations to a user with appropriate privileges.
+The action does not pass either credential to `codex exec`. It gives the secret to the loopback Responses proxy through standard input, after removing the input variable from the proxy's environment. For `codex-access-token`, a short-lived preflight first resolves the ChatGPT account and FedRAMP routing context; only that non-secret context is written to Codex's proxy configuration. This keeps the personal access token out of model-invoked tool and subprocess environments.
 
-In the unfortunate event that your API key has leaked, see [this article](https://help.openai.com/en/articles/9047852-how-can-i-delete-my-api-key) that explains how to delete/revoke an API key using the [OpenAI Platform's API keys page](https://platform.openai.com/api-keys).
+To underscore the importance of specifying either `drop-sudo` or `unprivileged-user` as the `safety-strategy` for `openai/codex-action`, we provide [an example](../examples/test-sandbox-protections.yml) of how **the combination of read-only access to the filesystem and `sudo` can be used to expose a credential from proxy process memory**. This often surprises developers, as many expect the combination of "read-only access" and no network to be a sufficient safeguard, but this is not the case in the presence of passwordless `sudo` (which is the default on GitHub-hosted runners). Notably, Linux's [procfs](https://en.wikipedia.org/wiki/Procfs) makes a considerable amount of information available via file-read operations to a user with appropriate privileges.
+
+If a credential leaks, revoke it immediately. Platform API keys can be deleted from the [OpenAI Platform API keys page](https://platform.openai.com/api-keys); revoke ChatGPT personal access tokens from the workspace where they were created.
 
 ## Recommendation: run `openai/codex-action` as the last step in a job
 

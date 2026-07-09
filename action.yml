@@ -18,6 +18,10 @@ inputs:
     description: "OpenAI API key used by Codex."
     required: false
     default: ""
+  codex-access-token:
+    description: "ChatGPT personal access token used by Codex. Must start with `at-`. Mutually exclusive with `openai-api-key`."
+    required: false
+    default: ""
   responses-api-endpoint:
     description: "Optional Responses API endpoint override, e.g. https://example.openai.azure.com/openai/v1/responses. Defaults to the proxy's built-in endpoint when empty."
     required: false
@@ -85,12 +89,12 @@ inputs:
       * `read-only` Run Codex in a sandbox that can read any file on disk,
         but cannot write to disk or access the network. Note Codex will still
         run as the default user for this Action, which likely has sudo
-        privileges, so it could read `openai-api-key` from memory and reveal it
-        by printing it to the output of the GitHub Action.
+        privileges, so it could read the selected credential from proxy memory
+        and reveal it by printing it to the output of the GitHub Action.
       * `unsafe` (NOT RECOMMENDED) Do not try to restrict Codex's privileges at all.
         This is extremely dangerous, as the default user for this Action likely
         has sudo privileges, which means it can read secrets stored in memory
-        (such as the value of `openai-api-key`) and print them to the output
+        (such as the selected API key or access token) and print them to the output
         of the GitHub Action or exfiltrate them in other ways.
     required: false
     default: "drop-sudo"
@@ -150,6 +154,20 @@ runs:
           --allow-bot-users "$ALLOW_BOT_USERS" \
           --allow-users "$ALLOW_USERS"
 
+    - name: Select authentication
+      id: authentication
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        HAS_OPENAI_API_KEY: ${{ inputs['openai-api-key'] != '' }}
+        HAS_CODEX_ACCESS_TOKEN: ${{ inputs['codex-access-token'] != '' }}
+        HAS_RESPONSES_API_ENDPOINT: ${{ inputs['responses-api-endpoint'] != '' }}
+      shell: bash
+      run: |
+        node "$ACTION_PATH/dist/main.js" select-authentication \
+          --has-openai-api-key "$HAS_OPENAI_API_KEY" \
+          --has-codex-access-token "$HAS_CODEX_ACCESS_TOKEN" \
+          --has-responses-api-endpoint "$HAS_RESPONSES_API_ENDPOINT"
+
     - name: Install Codex CLI
       shell: bash
       env:
@@ -168,6 +186,7 @@ runs:
       env:
         ACTION_PATH: ${{ github.action_path }}
         CODEX_HOME_OVERRIDE: ${{ inputs['codex-home'] }}
+        AUTHENTICATION: ${{ steps.authentication.outputs.authentication }}
         SAFETY_STRATEGY: ${{ inputs['safety-strategy'] }}
         CODEX_USER: ${{ inputs['codex-user'] }}
         CODEX_RUN_ID: ${{ github.run_id }}
@@ -176,21 +195,44 @@ runs:
           --codex-home-override "$CODEX_HOME_OVERRIDE" \
           --safety-strategy "$SAFETY_STRATEGY" \
           --codex-user "$CODEX_USER" \
+          --authentication "$AUTHENTICATION" \
           --github-run-id "$CODEX_RUN_ID"
+
+    # Hydrate the same AuthAPI metadata used by Codex's personal-access-token
+    # flow without putting the token in Codex's environment or on disk.
+    - name: Resolve ChatGPT account context
+      id: chatgpt_context
+      if: ${{ steps.authentication.outputs.authentication == 'codex-access-token' }}
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        CODEX_ACCESS_TOKEN: ${{ inputs['codex-access-token'] }}
+      run: |
+        set -euo pipefail
+        printenv CODEX_ACCESS_TOKEN | \
+          env -u CODEX_ACCESS_TOKEN \
+          node "$ACTION_PATH/dist/main.js" hydrate-personal-access-token
 
     - name: Determine server info path
       id: derive_server_info
       shell: bash
       env:
+        AUTHENTICATION: ${{ steps.authentication.outputs.authentication }}
         CODEX_HOME: ${{ steps.resolve_home.outputs.codex-home }}
         CODEX_RUN_ID: ${{ github.run_id }}
       run: |
-        server_info_file="$CODEX_HOME/$CODEX_RUN_ID.json"
+        if [ "$AUTHENTICATION" = "codex-access-token" ]; then
+          server_info_file="$CODEX_HOME/$CODEX_RUN_ID-codex-access-token.json"
+        else
+          # Keep the established path for Platform/Azure callers and for later
+          # invocations that reuse their proxy without passing another key.
+          server_info_file="$CODEX_HOME/$CODEX_RUN_ID.json"
+        fi
         echo "server_info_file=$server_info_file" >> "$GITHUB_OUTPUT"
 
     - name: Check Responses API proxy status
       id: start_proxy
-      if: ${{ inputs['openai-api-key'] != '' }}
+      if: ${{ steps.authentication.outputs.authentication != 'none' }}
       shell: bash
       env:
         SERVER_INFO_FILE: ${{ steps.derive_server_info.outputs.server_info_file }}
@@ -203,14 +245,16 @@ runs:
         fi
 
     # This is its own step to minimize the runtime logic that has access to the
-    # API key. Note we use `env -u PROXY_API_KEY` to ensure extra copies of the
-    # key do not end up in the memory of the `codex-responses-api-proxy`
+    # credential. Note we remove both input variables to ensure extra copies do
+    # not end up in the memory of the `codex-responses-api-proxy`
     # process where environment variables are stored.
     - name: Start Responses API proxy
-      if: ${{ inputs['openai-api-key'] != '' && steps.start_proxy.outputs.server_info_file_exists == 'false' }}
+      if: ${{ steps.authentication.outputs.authentication != 'none' && steps.start_proxy.outputs.server_info_file_exists == 'false' }}
       env:
+        AUTHENTICATION: ${{ steps.authentication.outputs.authentication }}
         SERVER_INFO_FILE: ${{ steps.derive_server_info.outputs.server_info_file }}
         PROXY_API_KEY: ${{ inputs['openai-api-key'] }}
+        CODEX_ACCESS_TOKEN: ${{ inputs['codex-access-token'] }}
         UPSTREAM_URL: ${{ inputs['responses-api-endpoint'] }}
       shell: bash
       run: |
@@ -220,16 +264,30 @@ runs:
           --server-info "$SERVER_INFO_FILE"
         )
 
-        if [ -n "$UPSTREAM_URL" ]; then
-          args+=(--upstream-url "$UPSTREAM_URL")
-        fi
+        case "$AUTHENTICATION" in
+          openai-api-key)
+            credential_env=PROXY_API_KEY
+            if [ -n "$UPSTREAM_URL" ]; then
+              args+=(--upstream-url "$UPSTREAM_URL")
+            fi
+            ;;
+          codex-access-token)
+            credential_env=CODEX_ACCESS_TOKEN
+            args+=(--upstream-url "https://chatgpt.com/backend-api/codex/responses")
+            ;;
+          *)
+            echo "Unsupported authentication mode: $AUTHENTICATION" >&2
+            exit 1
+            ;;
+        esac
 
         (
-          printenv PROXY_API_KEY | env -u PROXY_API_KEY "${args[@]}"
+          printenv "$credential_env" | \
+            env -u PROXY_API_KEY -u CODEX_ACCESS_TOKEN "${args[@]}"
         ) &
 
     - name: Wait for Responses API proxy
-      if: ${{ inputs['openai-api-key'] != '' && steps.start_proxy.outputs.server_info_file_exists == 'false' }}
+      if: ${{ steps.authentication.outputs.authentication != 'none' && steps.start_proxy.outputs.server_info_file_exists == 'false' }}
       shell: bash
       env:
         SERVER_INFO_FILE: ${{ steps.derive_server_info.outputs.server_info_file }}
@@ -253,7 +311,7 @@ runs:
     # This step has an output named `port`.
     - name: Read server info
       id: read_server_info
-      if: ${{ inputs['openai-api-key'] != '' || inputs.prompt != '' || inputs['prompt-file'] != '' }}
+      if: ${{ steps.authentication.outputs.authentication != 'none' || inputs.prompt != '' || inputs['prompt-file'] != '' }}
       shell: bash
       env:
         ACTION_PATH: ${{ github.action_path }}
@@ -261,21 +319,32 @@ runs:
       run: node "$ACTION_PATH/dist/main.js" read-server-info "$SERVER_INFO_FILE"
 
     - name: Write Codex proxy config
-      if: ${{ inputs['openai-api-key'] != '' }}
+      if: ${{ steps.authentication.outputs.authentication != 'none' }}
       shell: bash
       env:
         ACTION_PATH: ${{ github.action_path }}
         CODEX_HOME: ${{ steps.resolve_home.outputs.codex-home }}
         PROXY_PORT: ${{ steps.read_server_info.outputs.port }}
         SAFETY_STRATEGY: ${{ inputs['safety-strategy'] }}
+        CHATGPT_ACCOUNT_ID: ${{ steps.chatgpt_context.outputs.chatgpt-account-id }}
+        CHATGPT_ACCOUNT_IS_FEDRAMP: ${{ steps.chatgpt_context.outputs.chatgpt-account-is-fedramp }}
       run: |
-        node "$ACTION_PATH/dist/main.js" write-proxy-config \
-          --codex-home "$CODEX_HOME" \
-          --port "$PROXY_PORT" \
+        args=(
+          write-proxy-config
+          --codex-home "$CODEX_HOME"
+          --port "$PROXY_PORT"
           --safety-strategy "$SAFETY_STRATEGY"
+        )
+        if [ -n "$CHATGPT_ACCOUNT_ID" ]; then
+          args+=(
+            --chatgpt-account-id "$CHATGPT_ACCOUNT_ID"
+            --chatgpt-account-is-fedramp "$CHATGPT_ACCOUNT_IS_FEDRAMP"
+          )
+        fi
+        node "$ACTION_PATH/dist/main.js" "${args[@]}"
 
     - name: Enable Linux user namespaces for bubblewrap
-      if: ${{ runner.os == 'Linux' && runner.environment == 'github-hosted' && (inputs['openai-api-key'] != '' || inputs.prompt != '' || inputs['prompt-file'] != '') }}
+      if: ${{ runner.os == 'Linux' && runner.environment == 'github-hosted' && (steps.authentication.outputs.authentication != 'none' || inputs.prompt != '' || inputs['prompt-file'] != '') }}
       shell: bash
       run: |
         set -euo pipefail
@@ -301,7 +370,7 @@ runs:
         fi
 
     - name: Drop sudo privilege, if appropriate
-      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' }}
+      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && steps.authentication.outputs.authentication != 'none' }}
       shell: bash
       env:
         ACTION_PATH: ${{ github.action_path }}
@@ -320,7 +389,7 @@ runs:
         esac
 
     - name: Verify sudo privilege removed
-      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' }}
+      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && steps.authentication.outputs.authentication != 'none' }}
       shell: bash
       run: |
         if sudo -n true 2>/dev/null; then

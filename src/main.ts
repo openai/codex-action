@@ -17,6 +17,8 @@ import { ensureActorHasWriteAccess } from "./checkActorPermissions";
 import parseArgsStringToArgv from "string-argv";
 import { writeProxyConfig } from "./writeProxyConfig";
 import { checkOutput } from "./checkOutput";
+import { selectAuthentication } from "./selectAuthentication";
+import { hydratePersonalAccessToken } from "./personalAccessToken";
 
 export async function main() {
   const program = new Command();
@@ -25,6 +27,55 @@ export async function main() {
     .name("codex-action")
     .version(pkg.version)
     .description("Multitool to support openai/codex-action.");
+
+  program
+    .command("select-authentication")
+    .description("Validate credential inputs and select the authentication mode")
+    .requiredOption(
+      "--has-openai-api-key <boolean>",
+      "Whether the openai-api-key input is populated",
+      parseBoolean
+    )
+    .requiredOption(
+      "--has-codex-access-token <boolean>",
+      "Whether the codex-access-token input is populated",
+      parseBoolean
+    )
+    .requiredOption(
+      "--has-responses-api-endpoint <boolean>",
+      "Whether the responses-api-endpoint input is populated",
+      parseBoolean
+    )
+    .action(
+      async (options: {
+        hasOpenaiApiKey: boolean;
+        hasCodexAccessToken: boolean;
+        hasResponsesApiEndpoint: boolean;
+      }) => {
+        const authentication = selectAuthentication(options);
+        const { setOutput } = await import("@actions/core");
+        setOutput("authentication", authentication);
+      }
+    );
+
+  program
+    .command("hydrate-personal-access-token")
+    .description(
+      "Read a ChatGPT personal access token from stdin and hydrate its account metadata"
+    )
+    .action(async () => {
+      const accessToken = (await readStdin()).trim();
+      if (accessToken.length === 0) {
+        throw new Error("`codex-access-token` must not be empty.");
+      }
+      const metadata = await hydratePersonalAccessToken(accessToken);
+      const { setOutput } = await import("@actions/core");
+      setOutput("chatgpt-account-id", metadata.chatgptAccountId);
+      setOutput(
+        "chatgpt-account-is-fedramp",
+        metadata.chatgptAccountIsFedramp.toString()
+      );
+    });
 
   program
     .command("read-server-info")
@@ -51,12 +102,17 @@ export async function main() {
       "--codex-user <user>",
       "Codex user to consider when safety strategy is 'unprivileged-user'"
     )
+    .requiredOption(
+      "--authentication <mode>",
+      "Authentication mode selected for this invocation"
+    )
     .requiredOption("--github-run-id <id>", "GitHub run ID")
     .action(
       async (options: {
         codexHomeOverride: string;
         safetyStrategy: string;
         codexUser: string;
+        authentication: string;
         githubRunId: string;
       }) => {
         const safetyStrategy = toSafetyStrategy(options.safetyStrategy);
@@ -65,7 +121,8 @@ export async function main() {
           emptyAsNull(options.codexHomeOverride),
           safetyStrategy,
           codexUser,
-          options.githubRunId
+          options.githubRunId,
+          options.authentication
         );
 
         const { setOutput } = await import("@actions/core");
@@ -85,14 +142,38 @@ export async function main() {
       "--safety-strategy <strategy>",
       "Safety strategy to use. One of 'drop-sudo', 'read-only', 'unprivileged-user', or 'unsafe'."
     )
+    .option(
+      "--chatgpt-account-id <id>",
+      "ChatGPT account ID to add to proxied requests",
+      ""
+    )
+    .option(
+      "--chatgpt-account-is-fedramp <boolean>",
+      "Whether to add the ChatGPT FedRAMP routing header",
+      parseBoolean,
+      false
+    )
     .action(
       async (options: {
         codexHome: string;
         port: number;
         safetyStrategy: string;
+        chatgptAccountId: string;
+        chatgptAccountIsFedramp: boolean;
       }) => {
         const safetyStrategy = toSafetyStrategy(options.safetyStrategy);
-        await writeProxyConfig(options.codexHome, options.port, safetyStrategy);
+        const accountId = emptyAsNull(options.chatgptAccountId);
+        await writeProxyConfig(
+          options.codexHome,
+          options.port,
+          safetyStrategy,
+          accountId == null
+            ? null
+            : {
+                accountId,
+                isFedramp: options.chatgptAccountIsFedramp,
+              }
+        );
       }
     );
 
@@ -380,13 +461,23 @@ function parseBoolean(value: string): boolean {
   throw new Error(`Invalid boolean value: ${value}`);
 }
 
+async function readStdin(): Promise<string> {
+  process.stdin.setEncoding("utf8");
+  let input = "";
+  for await (const chunk of process.stdin) {
+    input += chunk;
+  }
+  return input;
+}
+
 main();
 
 async function resolveCodexHome(
   inputCodexHome: string | null,
   safetyStrategy: SafetyStrategy,
   codexUser: string | null,
-  githubRunId: string
+  githubRunId: string,
+  authentication: string
 ): Promise<string> {
   if (inputCodexHome != null) {
     return expandTilde(inputCodexHome);
@@ -405,7 +496,8 @@ async function resolveCodexHome(
 
     return await deriveSharedCodexHomeForUnprivilegedUser(
       codexUser,
-      githubRunId
+      githubRunId,
+      authentication
     );
   } else {
     const codexHome = path.join(os.homedir(), ".codex");
@@ -417,7 +509,8 @@ async function resolveCodexHome(
 
 async function deriveSharedCodexHomeForUnprivilegedUser(
   user: string,
-  githubRunId: string
+  githubRunId: string,
+  authentication: string
 ): Promise<string> {
   const home = (
     await checkOutput(["sudo", "-u", user, "--", "printenv", "HOME"])
@@ -445,13 +538,25 @@ async function deriveSharedCodexHomeForUnprivilegedUser(
   await checkOutput(["sudo", "chmod", "755", codexHome]);
 
   // codex-responses-api-proxy will need to write the server info file.
-  const serverInfoFile = path.join(codexHome, `${githubRunId}.json`);
+  const serverInfoFile = path.join(
+    codexHome,
+    serverInfoFilename(githubRunId, authentication)
+  );
   await checkOutput(["sudo", "touch", serverInfoFile]);
   // Make the file world-writable for the moment, but this will be locked down
   // to read-only by root before the action completes.
   await checkOutput(["sudo", "chmod", "666", serverInfoFile]);
 
   return codexHome;
+}
+
+function serverInfoFilename(
+  githubRunId: string,
+  authentication: string
+): string {
+  return authentication === "codex-access-token"
+    ? `${githubRunId}-codex-access-token.json`
+    : `${githubRunId}.json`;
 }
 
 function expandTilde(p: string): string {

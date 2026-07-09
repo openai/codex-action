@@ -173,6 +173,9 @@ export async function runCodexExec({
   }
 
   const env = { ...process.env };
+  // Authentication inputs are contained in the loopback proxy. Never expose
+  // an ambient access token to Codex or model-invoked subprocesses.
+  delete env.CODEX_ACCESS_TOKEN;
   if (!env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE) {
     env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE = "codex_github_action";
   }

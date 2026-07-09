@@ -2,7 +2,7 @@
 
 Run [Codex](https://github.com/openai/codex#codex-exec) from a GitHub Actions workflow while keeping tight control over the privileges available to Codex. This action handles installing the Codex CLI and configuring it with a secure proxy to the [Responses API](https://platform.openai.com/docs/api-reference/responses).
 
-Users must provide an API key for their chosen provider (for example, [`OPENAI_API_KEY`](https://platform.openai.com/api-keys) or `AZURE_OPENAI_API_KEY` [if using Azure for OpenAI models](#azure)) as a [GitHub Actions secret](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets) to use this action.
+Authenticate with either a Platform or Azure API key, or a ChatGPT personal access token. Store the credential as a [GitHub Actions secret](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets) and pass it through the matching input. Do not put a ChatGPT token in `openai-api-key`; the Platform Responses endpoint does not accept it.
 
 ## Example: Create Your Own Pull Request Bot
 
@@ -101,6 +101,7 @@ jobs:
 | Name                     | Description                                                                                                                                    | Default     |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
 | `openai-api-key`         | Secret used to start the Responses API proxy when you are using OpenAI (default). Store it in `secrets`.                                       | `""`        |
+| `codex-access-token`     | `at-...` ChatGPT personal access token. Store it in `secrets`. Mutually exclusive with `openai-api-key`.                                      | `""`        |
 | `responses-api-endpoint` | Optional Responses API endpoint override, e.g. `https://example.openai.azure.com/openai/v1/responses`. Leave empty to use the proxy's default. | `""`        |
 | `prompt`                 | Inline prompt text. Provide this or `prompt-file`.                                                                                             | `""`        |
 | `prompt-file`            | Path (relative to the repository root) of a file that contains the prompt. Provide this or `prompt`.                                           | `""`        |
@@ -120,6 +121,23 @@ jobs:
 | `allow-users`            | List of GitHub usernames who can trigger the action in addition to those who have write access to the repo.                                    | `""`        |
 | `allow-bots`             | Allow runs triggered by trusted GitHub bot accounts (`github-actions[bot]`) to bypass the write-access check.                                  | `false`     |
 | `allow-bot-users`        | List of GitHub bot usernames that can bypass the write-access check. `*` is not supported; list trusted bots explicitly.                       | `""`        |
+
+## ChatGPT personal access tokens
+
+Use `codex-access-token` for an `at-...` ChatGPT personal access token:
+
+```yaml
+- name: Run Codex with ChatGPT authentication
+  uses: openai/codex-action@v1
+  with:
+    codex-access-token: ${{ secrets.CODEX_ACCESS_TOKEN }}
+    permission-profile: ":workspace"
+    prompt: Review the public change.
+```
+
+The action validates the token through AuthAPI, resolves its ChatGPT workspace metadata, and sends requests to the ChatGPT Codex endpoint with the required account and FedRAMP context. The token is passed to the loopback Responses proxy through standard input. It is not stored in `CODEX_HOME`, added to Codex's environment, or exposed to model-invoked subprocesses.
+
+`codex-access-token` is mutually exclusive with `openai-api-key`. It also cannot be combined with `responses-api-endpoint`, because ChatGPT personal access tokens are valid only on allowlisted ChatGPT/Codex routes. Continue to use `openai-api-key` for Platform, Azure, and custom Responses endpoints.
 
 ## Permission profiles
 
@@ -158,11 +176,11 @@ For example, use the built-in `:workspace` profile for a workflow that needs to 
 
 The `safety-strategy` input determines how much access Codex receives on the runner. Choosing the right option is critical, especially when sensitive secrets (like your OpenAI API key) are present.
 
-See [Protecting your `OPENAI_API_KEY`](./docs/security.md#protecting-your-openai_api_key) on the Security page for important details on this topic.
+See [Protecting authentication secrets](./docs/security.md#protecting-authentication-secrets) on the Security page for important details on this topic.
 
 - **`drop-sudo` (default)** — On Linux and macOS runners, the action revokes the default user’s `sudo` membership before invoking Codex. Codex then runs as that user without superuser privileges. This change lasts for the rest of the job, so subsequent steps cannot rely on `sudo`. This is usually the safest choice on GitHub-hosted runners.
 - **`unprivileged-user`** — Runs Codex as the user provided via `codex-user`. Use this if you manage your own runner with a pre-created unprivileged account. Ensure the user can read the repository checkout and any files Codex needs. See [`unprivileged-user.yml`](./examples/unprivileged-user.yml) for an example of how to configure such an account on `ubuntu-latest`.
-- **`read-only`** — Executes Codex in a read-only sandbox. Codex can view files but cannot mutate the filesystem or access the network directly. The OpenAI API key still flows through the proxy, so Codex could read it if it can reach process memory.
+- **`read-only`** — Executes Codex in a read-only sandbox. Codex can view files but cannot mutate the filesystem or access the network directly. The selected credential still flows through the proxy, so Codex could read it if it can reach process memory.
 - **`unsafe`** — No privilege reduction. Codex runs as the default `runner` user (which typically has `sudo`). Only use this when you fully trust the prompt. On Windows runners this is the only supported choice and the action will fail if another option is provided.
 
 ### Operating system support
@@ -193,7 +211,7 @@ jobs:
 - To use a non-default Responses endpoint (for example Azure OpenAI), set `responses-api-endpoint` to the provider's URL while keeping `openai-api-key` populated; the proxy will still send `Authorization: Bearer <key>` upstream.
 - If you want Codex to have access to a narrow set of privileged functionality, consider running a local MCP server that can perform these actions and configure Codex to use it.
 - If you need more control over the CLI invocation, pass flags through `codex-args` or create a `config.toml` in `codex-home`. Prefer a [permission profile](https://developers.openai.com/codex/permissions), starting with `:workspace` for workspace editing, over legacy sandbox flags for new integrations.
-- Once `openai/codex-action` is run once with `openai-api-key`, you can also call `codex` from subsequent scripts in your job. (You can omit `prompt` and `prompt-file` from the action in this case.)
+- Once `openai/codex-action` is run once with either credential input, you can also call `codex` from subsequent scripts in your job. (You can omit `prompt` and `prompt-file` from the action in this case.)
 
 ## Azure
 

@@ -25,9 +25,11 @@ function runCodexExecWithFakeCodex({
   permissionProfile = "",
   extraArgs = "",
   safetyStrategy = "drop-sudo",
+  env = {},
 } = {}) {
   const tempDir = mkdtempSync(path.join(tmpdir(), "codex-action-permissions-"));
   const capturePath = path.join(tempDir, "args.json");
+  const captureEnvPath = path.join(tempDir, "env.json");
   const outputPath = path.join(tempDir, "output.txt");
   const fakeCodexPath = path.join(tempDir, "codex.mjs");
   writeFileSync(
@@ -35,6 +37,9 @@ function runCodexExecWithFakeCodex({
     `import { writeFileSync } from "node:fs";
 const args = process.argv.slice(2);
 writeFileSync(process.env.CODEX_CAPTURE_ARGS, JSON.stringify(args));
+writeFileSync(process.env.CODEX_CAPTURE_ENV, JSON.stringify({
+  hasCodexAccessToken: Object.hasOwn(process.env, "CODEX_ACCESS_TOKEN"),
+}));
 const outputIndex = args.indexOf("--output-last-message");
 if (outputIndex < 0 || outputIndex + 1 >= args.length) {
   throw new Error("missing --output-last-message");
@@ -97,18 +102,26 @@ writeFileSync(args[outputIndex + 1], "fake final message\\n");
         ...process.env,
         PATH: `${tempDir}${path.delimiter}${process.env.PATH ?? ""}`,
         CODEX_CAPTURE_ARGS: capturePath,
+        CODEX_CAPTURE_ENV: captureEnvPath,
+        ...env,
       },
     }
   );
 
   let capturedArgs = null;
+  let capturedEnv = null;
   try {
     capturedArgs = JSON.parse(readFileSync(capturePath, "utf8"));
   } catch {
     // Expected when argument validation rejects the invocation before spawning Codex.
   }
+  try {
+    capturedEnv = JSON.parse(readFileSync(captureEnvPath, "utf8"));
+  } catch {
+    // Expected when argument validation rejects the invocation before spawning Codex.
+  }
   rmSync(tempDir, { recursive: true, force: true });
-  return { result, capturedArgs };
+  return { result, capturedArgs, capturedEnv };
 }
 
 test("preserves workspace-write as the default legacy sandbox", () => {
@@ -125,6 +138,17 @@ test("allows permission-profile to be omitted", () => {
 
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(capturedArgs.slice(-2), ["--sandbox", "workspace-write"]);
+});
+
+test("does not expose an ambient Codex access token to codex exec", () => {
+  const { result, capturedEnv } = runCodexExecWithFakeCodex({
+    env: { CODEX_ACCESS_TOKEN: "at-secret-test-token" },
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(capturedEnv, { hasCodexAccessToken: false });
+  assert.doesNotMatch(result.stdout, /at-secret-test-token/);
+  assert.doesNotMatch(result.stderr, /at-secret-test-token/);
 });
 
 test("selects a permission profile without passing --sandbox", () => {
