@@ -9,7 +9,11 @@ const MODEL_PROVIDER = "codex-action-responses-proxy";
 export async function writeProxyConfig(
   codexHome: string,
   port: number,
-  safetyStrategy: SafetyStrategy
+  safetyStrategy: SafetyStrategy,
+  chatgptContext: {
+    accountId: string;
+    isFedramp: boolean;
+  } | null = null
 ): Promise<void> {
   const configPath = path.join(codexHome, "config.toml");
 
@@ -25,13 +29,18 @@ model_provider = "${MODEL_PROVIDER}"
 
 
 `;
+  const httpHeaders = chatgptContext
+    ? `
+http_headers = { "ChatGPT-Account-ID" = ${JSON.stringify(chatgptContext.accountId)}${chatgptContext.isFedramp ? ', "X-OpenAI-Fedramp" = "true"' : ""} }
+`
+    : "";
   const table = `
 
 # Added by codex-action.
 [model_providers.${MODEL_PROVIDER}]
 name = "Codex Action Responses Proxy"
 base_url = "http://127.0.0.1:${port}/v1"
-wire_api = "responses"
+wire_api = "responses"${httpHeaders}
 `;
 
   // Prepend model_provider at the very top.
