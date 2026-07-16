@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { promises as fs } from "node:fs";
+import { constants as fsConstants, promises as fs } from "node:fs";
 import * as path from "node:path";
 
 interface ExecOptions {
@@ -21,6 +21,8 @@ export interface DropSudoOptions {
 
 const LINUX_PLATFORM = "linux";
 const MACOS_PLATFORM = "darwin";
+const LINUX_PRIVILEGED_GROUPS = ["docker"];
+const LINUX_PRIVILEGED_SOCKETS = ["/var/run/docker.sock"];
 
 export async function dropSudo(options: DropSudoOptions): Promise<void> {
   const platform = process.platform;
@@ -61,6 +63,10 @@ export async function dropSudo(options: DropSudoOptions): Promise<void> {
   // Invalidate the sudo ticket again; ignore failures for the same reason as
   // above (some environments return an error when no timestamp exists).
   await execCommand("sudo", ["-K"], { ignoreFailure: true });
+
+  if (platform === LINUX_PLATFORM) {
+    await verifyPrivilegedSocketsRestricted();
+  }
 }
 
 async function dropSudoWithPrivileges(options: DropSudoOptions): Promise<void> {
@@ -72,25 +78,16 @@ async function dropSudoWithPrivileges(options: DropSudoOptions): Promise<void> {
 
   switch (process.platform) {
     case LINUX_PLATFORM: {
-      if (await isUserInGroup(options.user, options.group)) {
-        if (await commandExists("deluser")) {
-          await execCommand("deluser", [options.user, options.group]);
-          console.log(
-            `Used 'deluser ${options.user} ${options.group}' to drop sudo privilege.`
-          );
-        } else if (await commandExists("gpasswd")) {
-          await execCommand("gpasswd", ["-d", options.user, options.group]);
-          console.log(
-            `Used 'gpasswd -d ${options.user} ${options.group}' to drop sudo privilege.`
-          );
-        } else {
-          throw new Error("Neither deluser nor gpasswd available.");
+      const groups = new Set([options.group, ...LINUX_PRIVILEGED_GROUPS]);
+      for (const group of groups) {
+        if (await removeUserFromLinuxGroup(options.user, group)) {
+          changed = true;
         }
-        changed = true;
-      } else {
-        console.log(
-          `${options.user} is not a member of the ${options.group} group.`
-        );
+      }
+      for (const socketPath of LINUX_PRIVILEGED_SOCKETS) {
+        if (await restrictPrivilegedSocket(socketPath)) {
+          changed = true;
+        }
       }
       break;
     }
@@ -158,6 +155,73 @@ async function dropSudoWithPrivileges(options: DropSudoOptions): Promise<void> {
   console.log(
     `Groups for ${options.user} after cleanup: ${groupsAfter.stdout.trim()}`
   );
+}
+
+async function removeUserFromLinuxGroup(
+  user: string,
+  group: string
+): Promise<boolean> {
+  if (!(await isUserInGroup(user, group))) {
+    console.log(`${user} is not a member of the ${group} group.`);
+    return false;
+  }
+
+  if (await commandExists("deluser")) {
+    await execCommand("deluser", [user, group]);
+    console.log(`Used 'deluser ${user} ${group}' to drop group access.`);
+  } else if (await commandExists("gpasswd")) {
+    await execCommand("gpasswd", ["-d", user, group]);
+    console.log(`Used 'gpasswd -d ${user} ${group}' to drop group access.`);
+  } else {
+    throw new Error("Neither deluser nor gpasswd available.");
+  }
+
+  return true;
+}
+
+async function restrictPrivilegedSocket(socketPath: string): Promise<boolean> {
+  let stats;
+  try {
+    stats = await fs.stat(socketPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
+
+  if (!stats.isSocket()) {
+    throw new Error(`Expected ${socketPath} to be a socket.`);
+  }
+
+  if (stats.uid === 0 && stats.gid === 0 && (stats.mode & 0o077) === 0) {
+    console.log(`Access to ${socketPath} is already restricted.`);
+    return false;
+  }
+
+  await fs.chown(socketPath, 0, 0);
+  await fs.chmod(socketPath, 0o600);
+  console.log(`Restricted access to ${socketPath}.`);
+  return true;
+}
+
+async function verifyPrivilegedSocketsRestricted(): Promise<void> {
+  if (typeof process.getuid === "function" && process.getuid() === 0) {
+    return;
+  }
+
+  for (const socketPath of LINUX_PRIVILEGED_SOCKETS) {
+    try {
+      await fs.access(socketPath, fsConstants.W_OK);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "EACCES" || code === "EPERM" || code === "ENOENT") {
+        continue;
+      }
+      throw error;
+    }
+    throw new Error(`drop-sudo did not revoke access to ${socketPath}.`);
+  }
 }
 
 async function ensurePasswordlessSudo(): Promise<void> {

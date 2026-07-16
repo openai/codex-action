@@ -44,3 +44,12 @@ jobs:
             echo "$status_output"
             exit 1
           fi
+
+      - name: Verify drop-sudo hardening
+        run: |
+          test -w /var/run/docker.sock
+          node dist/main.js drop-sudo --user runner --group sudo
+          if test -w /var/run/docker.sock; then
+            echo '::error::drop-sudo left a privileged service accessible.'
+            exit 1
+          fi
