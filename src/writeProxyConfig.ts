@@ -1,10 +1,13 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
+import { execFileSync } from "node:child_process";
 import { SafetyStrategy } from "./runCodexExec";
 import { checkOutput } from "./checkOutput";
 
 const MODEL_PROVIDER = "codex-action-responses-proxy";
+const CODEX_VERSION_PATTERN =
+  /\b(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)\b/;
 
 export async function writeProxyConfig(
   codexHome: string,
@@ -12,6 +15,7 @@ export async function writeProxyConfig(
   safetyStrategy: SafetyStrategy
 ): Promise<void> {
   const configPath = path.join(codexHome, "config.toml");
+  const codexVersion = readInstalledCodexVersion();
 
   let existing = "";
   try {
@@ -32,6 +36,7 @@ model_provider = "${MODEL_PROVIDER}"
 name = "Codex Action Responses Proxy"
 base_url = "http://127.0.0.1:${port}/v1"
 wire_api = "responses"
+http_headers = { version = "${codexVersion}" }
 `;
 
   // Prepend model_provider at the very top.
@@ -52,4 +57,15 @@ wire_api = "responses"
     await fs.mkdir(codexHome, { recursive: true });
     await fs.writeFile(configPath, output, "utf8");
   }
+}
+
+function readInstalledCodexVersion(): string {
+  const output = execFileSync("codex", ["--version"], {
+    encoding: "utf8",
+  }).trim();
+  const match = CODEX_VERSION_PATTERN.exec(output);
+  if (match?.[1] == null) {
+    throw new Error(`Could not parse installed Codex version from: ${output}`);
+  }
+  return match[1];
 }
