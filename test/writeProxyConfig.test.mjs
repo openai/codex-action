@@ -87,3 +87,42 @@ test("keeps writing config when the installed Codex version cannot be parsed", (
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test("omits the version header for malformed Codex build metadata", () => {
+  for (const version of ["0.144.0+.", "0.144.0+build."]) {
+    const tempDir = mkdtempSync(path.join(tmpdir(), "codex-action-proxy-config-"));
+    const codexHome = path.join(tempDir, "codex-home");
+    const fakeCodexPath = path.join(tempDir, "codex");
+    writeFileSync(fakeCodexPath, `#!/bin/sh\necho 'codex-cli ${version}'\n`, "utf8");
+    chmodSync(fakeCodexPath, 0o755);
+
+    try {
+      const result = spawnSync(
+        process.execPath,
+        [
+          mainPath,
+          "write-proxy-config",
+          "--codex-home",
+          codexHome,
+          "--port",
+          "9876",
+          "--safety-strategy",
+          "drop-sudo",
+        ],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            PATH: `${tempDir}${path.delimiter}${process.env.PATH ?? ""}`,
+          },
+        }
+      );
+
+      assert.equal(result.status, 0, result.stderr);
+      const config = readFileSync(path.join(codexHome, "config.toml"), "utf8");
+      assert.doesNotMatch(config, /http_headers =/, version);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+});

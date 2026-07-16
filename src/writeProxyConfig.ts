@@ -7,7 +7,7 @@ import { checkOutput } from "./checkOutput";
 
 const MODEL_PROVIDER = "codex-action-responses-proxy";
 const CODEX_VERSION_PATTERN =
-  /\b(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)\b/;
+  /^codex-cli[ \t]+(\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)$/;
 
 export async function writeProxyConfig(
   codexHome: string,
