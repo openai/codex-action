@@ -16,6 +16,10 @@ export async function writeProxyConfig(
 ): Promise<void> {
   const configPath = path.join(codexHome, "config.toml");
   const codexVersion = readInstalledCodexVersion();
+  const versionHeader =
+    codexVersion == null
+      ? ""
+      : `http_headers = { version = "${codexVersion}" }\n`;
 
   let existing = "";
   try {
@@ -36,7 +40,7 @@ model_provider = "${MODEL_PROVIDER}"
 name = "Codex Action Responses Proxy"
 base_url = "http://127.0.0.1:${port}/v1"
 wire_api = "responses"
-http_headers = { version = "${codexVersion}" }
+${versionHeader}
 `;
 
   // Prepend model_provider at the very top.
@@ -59,13 +63,15 @@ http_headers = { version = "${codexVersion}" }
   }
 }
 
-function readInstalledCodexVersion(): string {
-  const output = execFileSync("codex", ["--version"], {
-    encoding: "utf8",
-  }).trim();
-  const match = CODEX_VERSION_PATTERN.exec(output);
-  if (match?.[1] == null) {
-    throw new Error(`Could not parse installed Codex version from: ${output}`);
+function readInstalledCodexVersion(): string | null {
+  try {
+    const output = execFileSync("codex", ["--version"], {
+      encoding: "utf8",
+    }).trim();
+    return CODEX_VERSION_PATTERN.exec(output)?.[1] ?? null;
+  } catch {
+    // Missing version metadata must keep this caller on the legacy Responses
+    // error code, not make an otherwise valid action run fail.
+    return null;
   }
-  return match[1];
 }
