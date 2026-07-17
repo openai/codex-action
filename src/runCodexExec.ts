@@ -4,6 +4,13 @@ import path from "path";
 import os from "os";
 import { setOutput } from "@actions/core";
 import { checkOutput } from "./checkOutput";
+import { dropSudo, verifySudoUnavailable } from "./dropSudo";
+import {
+  buildGatedCodexCommand,
+  endChildInput,
+  waitForLinuxGate,
+  type GatedCodexCommand,
+} from "./linuxDropSudo";
 
 export type PromptSource =
   | {
@@ -107,10 +114,32 @@ export async function runCodexExec({
     extraArgs,
   });
 
-  const command: Array<string> = [];
+  const commandPrefix: Array<string> = [];
+  let linuxDropSudoUser: string | null = null;
+  let linuxGate: GatedCodexCommand | null = null;
 
   let pathToCodex = "codex";
-  if (safetyStrategy === "unprivileged-user") {
+  if (safetyStrategy === "drop-sudo" && process.platform === "linux") {
+    if (
+      typeof process.getuid !== "function" ||
+      typeof process.getgid !== "function"
+    ) {
+      throw new Error("Linux drop-sudo requires POSIX user and group APIs.");
+    }
+
+    const uid = process.getuid();
+    if (uid === 0) {
+      throw new Error(
+        "Linux drop-sudo cannot run Codex from a runner whose default user is root."
+      );
+    }
+
+    pathToCodex = (await checkOutput(["which", "codex"])).trim();
+    if (!pathToCodex) {
+      throw new Error("could not find 'codex' in PATH");
+    }
+    linuxDropSudoUser = os.userInfo().username;
+  } else if (safetyStrategy === "unprivileged-user") {
     if (codexUser == null) {
       throw new Error(
         "codexUser must be specified when using the 'unprivileged-user' safety strategy."
@@ -131,41 +160,40 @@ export async function runCodexExec({
       throw new Error("could not find 'codex' in PATH");
     }
 
-    command.push("sudo", "-u", codexUser, "--");
+    commandPrefix.push("sudo", "-u", codexUser, "--");
   }
 
-  command.push(
-    pathToCodex,
+  const codexArgs = [
     "exec",
     "--skip-git-repo-check",
     "--cd",
     cd,
     "--output-last-message",
-    outputFile.file
-  );
+    outputFile.file,
+  ];
 
   if (resolvedOutputSchema != null) {
-    command.push("--output-schema", resolvedOutputSchema.file);
+    codexArgs.push("--output-schema", resolvedOutputSchema.file);
   }
 
   if (model != null) {
-    command.push("--model", model);
+    codexArgs.push("--model", model);
   }
 
   if (effort != null) {
     // https://github.com/openai/codex/blob/00debb6399eb51c4b9273f0bc012912c42fe6c91/docs/config.md#config
     // https://github.com/openai/codex/blob/00debb6399eb51c4b9273f0bc012912c42fe6c91/docs/config.md#model_reasoning_effort
-    command.push("--config", `model_reasoning_effort="${effort}"`);
+    codexArgs.push("--config", `model_reasoning_effort="${effort}"`);
   }
 
-  command.push(...extraArgs);
+  codexArgs.push(...extraArgs);
 
   switch (permissionSelection.type) {
     case "sandbox":
-      command.push("--sandbox", permissionSelection.mode);
+      codexArgs.push("--sandbox", permissionSelection.mode);
       break;
     case "profile":
-      command.push(
+      codexArgs.push(
         "--config",
         `default_permissions=${JSON.stringify(permissionSelection.name)}`
       );
@@ -182,38 +210,87 @@ export async function runCodexExec({
     extraEnv = `CODEX_HOME=${codexHome} `;
   }
 
-  // Split the `program` from the `args` for `spawn()`.
-  const program = command.shift()!;
-  console.log(
-    `Running: ${extraEnv}${program} ${command
-      .map((a) => JSON.stringify(a))
-      .join(" ")}`
-  );
-  try {
-    await new Promise((resolve, reject) => {
-      const child = spawn(program, command, {
-        env,
-        stdio: ["pipe", "inherit", "inherit"],
-      });
-      child.stdin.write(input);
-      child.stdin.end();
-
-      child.on("error", reject);
-
-      child.on("close", async (code) => {
-        if (code !== 0) {
-          reject(new Error(`${program} exited with code ${code}`));
-          return;
-        }
-
-        try {
-          await finalizeExecution(outputFile, runAsUser);
-          resolve(undefined);
-        } catch (err) {
-          reject(err);
-        }
-      });
+  let program: string;
+  let command: Array<string>;
+  if (linuxDropSudoUser != null) {
+    const userInfo = os.userInfo();
+    linuxGate = buildGatedCodexCommand({
+      uid: process.getuid!(),
+      gid: process.getgid!(),
+      user: linuxDropSudoUser,
+      home: process.env.HOME ?? userInfo.homedir,
+      codexPath: pathToCodex,
+      codexArgs,
     });
+    program = linuxGate.program;
+    command = linuxGate.args;
+    console.log(
+      `Running with Linux drop-sudo protection: ${extraEnv}${pathToCodex} ${codexArgs
+        .map((arg) => JSON.stringify(arg))
+        .join(" ")}`
+    );
+  } else {
+    const fullCommand = [...commandPrefix, pathToCodex, ...codexArgs];
+    program = fullCommand.shift()!;
+    command = fullCommand;
+    console.log(
+      `Running: ${extraEnv}${program} ${command
+        .map((arg) => JSON.stringify(arg))
+        .join(" ")}`
+    );
+  }
+
+  try {
+    const child = spawn(program, command, {
+      env,
+      stdio: ["pipe", linuxGate == null ? "inherit" : "pipe", "inherit"],
+    });
+    const spawned = new Promise<void>((resolve, reject) => {
+      child.once("spawn", resolve);
+      child.once("error", reject);
+    });
+    const completed = new Promise<number>((resolve, reject) => {
+      child.once("error", reject);
+      child.once("close", (code) => resolve(code ?? 1));
+    });
+    const gateReady =
+      linuxGate == null
+        ? Promise.resolve()
+        : waitForLinuxGate(child, linuxGate.readyToken);
+
+    try {
+      await Promise.all([spawned, gateReady]);
+      if (linuxDropSudoUser != null) {
+        await dropSudo({
+          user: linuxDropSudoUser,
+          group: "sudo",
+          rootPhase: false,
+        });
+        await verifySudoUnavailable();
+      }
+
+      if (linuxGate != null && child.exitCode != null) {
+        throw new Error(
+          `${program} exited before privilege cleanup completed (code ${child.exitCode})`
+        );
+      }
+      const childInput =
+        linuxGate == null ? input : `${linuxGate.goToken}\n${input}`;
+      await endChildInput(child, childInput);
+    } catch (error) {
+      if (child.stdin != null && !child.stdin.destroyed) {
+        child.stdin.on("error", () => undefined);
+        child.stdin.end();
+      }
+      await completed.catch(() => undefined);
+      throw error;
+    }
+
+    const code = await completed;
+    if (code !== 0) {
+      throw new Error(`${program} exited with code ${code}`);
+    }
+    await finalizeExecution(outputFile, runAsUser);
   } finally {
     await cleanupOutputSchema(resolvedOutputSchema);
   }

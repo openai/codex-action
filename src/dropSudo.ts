@@ -21,6 +21,7 @@ export interface DropSudoOptions {
 
 const LINUX_PLATFORM = "linux";
 const MACOS_PLATFORM = "darwin";
+const SUDO_PATH = "/usr/bin/sudo";
 
 export async function dropSudo(options: DropSudoOptions): Promise<void> {
   const platform = process.platform;
@@ -39,15 +40,15 @@ export async function dropSudo(options: DropSudoOptions): Promise<void> {
   await ensurePasswordlessSudo();
   // `sudo -K` invalidates cached credentials but exits non-zero when no ticket
   // exists yet. Ignore that failure so fresh runners don't blow up.
-  await execCommand("sudo", ["-K"], { ignoreFailure: true });
+  await execCommand(SUDO_PATH, ["-K"], { ignoreFailure: true });
 
   const execArgs = [...process.execArgv];
   const scriptPath = process.argv[1];
   // Re-enter this command under sudo so the privilege-dropping work happens in a
   // single place regardless of the host platform.
-  await execCommand("sudo", [
+  await execCommand(SUDO_PATH, [
     "-n",
-    "node",
+    process.execPath,
     ...execArgs,
     scriptPath,
     "drop-sudo",
@@ -60,7 +61,18 @@ export async function dropSudo(options: DropSudoOptions): Promise<void> {
 
   // Invalidate the sudo ticket again; ignore failures for the same reason as
   // above (some environments return an error when no timestamp exists).
-  await execCommand("sudo", ["-K"], { ignoreFailure: true });
+  await execCommand(SUDO_PATH, ["-K"], { ignoreFailure: true });
+}
+
+export async function verifySudoUnavailable(): Promise<void> {
+  const result = await execCommand(SUDO_PATH, ["-n", "true"], {
+    capture: true,
+    ignoreFailure: true,
+  });
+  if (result.code === 0) {
+    throw new Error("Expected sudo to be disabled, but sudo succeeded.");
+  }
+  console.log("Confirmed sudo privilege is disabled.");
 }
 
 async function dropSudoWithPrivileges(options: DropSudoOptions): Promise<void> {
@@ -162,7 +174,7 @@ async function dropSudoWithPrivileges(options: DropSudoOptions): Promise<void> {
 
 async function ensurePasswordlessSudo(): Promise<void> {
   try {
-    await execCommand("sudo", ["-n", "true"], { capture: true });
+    await execCommand(SUDO_PATH, ["-n", "true"], { capture: true });
   } catch (error) {
     throw new Error("Unexpected: passwordless sudo not available.");
   }

@@ -58,7 +58,7 @@ If you have effectively opened up your use of `openai/codex-action` to the world
 
 ## Protecting your `OPENAI_API_KEY`
 
-No doubt your `OPENAI_API_KEY` is an important secret that you do not want to share with the world. **Be sure to use either `drop-sudo` or `unprivileged-user` to ensure it stays secret!**
+No doubt your `OPENAI_API_KEY` is an important secret that you do not want to share with the world. Use either `drop-sudo` or `unprivileged-user` for Codex launched by the action. Direct Codex commands in later steps do not pass through the action's reduced Linux process identity.
 
 To underscore the importance of specifying either `drop-sudo` or `unprivileged-user` as the `safety-strategy` for `openai/codex-action`, we provide [an example](../examples/test-sandbox-protections.yml) of how **the combination of read-only access to the filesystem and `sudo` can be used to expose your `OPENAI_API_KEY`**. This often surprises developers, as many expect the combination of "read-only access" and no network to be a sufficient safeguard, but this is not the case in the presence of passwordless `sudo` (which is the default on GitHub-hosted runners). Notably, Linux's [procfs](https://en.wikipedia.org/wiki/Procfs) makes a considerable amount of information available via file-read operations to a user with appropriate privileges.
 
