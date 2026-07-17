@@ -272,6 +272,23 @@ test(
       run("/usr/bin/id", ["-nG", user]).stdout.split(/\s+/).includes("sudo"),
       false
     );
+
+    const repeatedResult = spawnCodexAs({
+      uid,
+      gid,
+      user,
+      home,
+      binDir,
+      actionPath,
+      workspace,
+      outputPath,
+      prompt: "second invocation must remain gated",
+    });
+    assert.notEqual(repeatedResult.status, 0);
+    assert.match(
+      repeatedResult.stderr,
+      /If an earlier drop-sudo invocation already removed sudo/
+    );
   }
 );
 

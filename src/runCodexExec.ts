@@ -4,7 +4,11 @@ import path from "path";
 import os from "os";
 import { setOutput } from "@actions/core";
 import { checkOutput } from "./checkOutput";
-import { dropSudo, verifySudoUnavailable } from "./dropSudo";
+import {
+  dropSudo,
+  ensurePasswordlessSudo,
+  verifySudoUnavailable,
+} from "./dropSudo";
 import {
   buildGatedCodexCommand,
   endChildInput,
@@ -93,6 +97,31 @@ export async function runCodexExec({
       break;
   }
 
+  const isLinuxDropSudo =
+    safetyStrategy === "drop-sudo" && process.platform === "linux";
+  if (isLinuxDropSudo) {
+    if (
+      typeof process.getuid !== "function" ||
+      typeof process.getgid !== "function"
+    ) {
+      throw new Error("Linux drop-sudo requires POSIX user and group APIs.");
+    }
+
+    if (process.getuid() === 0) {
+      throw new Error(
+        "Linux drop-sudo cannot run Codex from a runner whose default user is root."
+      );
+    }
+
+    try {
+      await ensurePasswordlessSudo();
+    } catch {
+      throw new Error(
+        "Linux drop-sudo requires passwordless sudo before Codex starts. If an earlier drop-sudo invocation already removed sudo, run Codex in that invocation or use a fresh job."
+      );
+    }
+  }
+
   const runAsUser: string | null =
     safetyStrategy === "unprivileged-user" ? codexUser : null;
 
@@ -119,21 +148,7 @@ export async function runCodexExec({
   let linuxGate: GatedCodexCommand | null = null;
 
   let pathToCodex = "codex";
-  if (safetyStrategy === "drop-sudo" && process.platform === "linux") {
-    if (
-      typeof process.getuid !== "function" ||
-      typeof process.getgid !== "function"
-    ) {
-      throw new Error("Linux drop-sudo requires POSIX user and group APIs.");
-    }
-
-    const uid = process.getuid();
-    if (uid === 0) {
-      throw new Error(
-        "Linux drop-sudo cannot run Codex from a runner whose default user is root."
-      );
-    }
-
+  if (isLinuxDropSudo) {
     pathToCodex = (await checkOutput(["which", "codex"])).trim();
     if (!pathToCodex) {
       throw new Error("could not find 'codex' in PATH");

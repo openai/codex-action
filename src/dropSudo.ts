@@ -172,7 +172,7 @@ async function dropSudoWithPrivileges(options: DropSudoOptions): Promise<void> {
   );
 }
 
-async function ensurePasswordlessSudo(): Promise<void> {
+export async function ensurePasswordlessSudo(): Promise<void> {
   try {
     await execCommand(SUDO_PATH, ["-n", "true"], { capture: true });
   } catch (error) {
