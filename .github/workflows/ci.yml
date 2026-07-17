@@ -47,9 +47,27 @@ jobs:
 
       - name: Verify drop-sudo hardening
         run: |
-          test -w /var/run/docker.sock
+          service_dir="/run/codex-action-drop-sudo-test"
+          service_socket="$service_dir/control.sock"
+          sudo mkdir "$service_dir"
+          sudo chown runner:users "$service_dir"
+          SOCKET_PATH="$service_socket" node -e \
+            'require("node:net").createServer().listen(process.env.SOCKET_PATH)' &
+          service_pid=$!
+          trap 'kill "$service_pid" 2>/dev/null || true' EXIT
+          for _ in {1..50}; do
+            if test -S "$service_socket"; then
+              break
+            fi
+            sleep 0.1
+          done
+          test -S "$service_socket"
+          sudo chown root:users "$service_socket"
+          sudo chmod 0660 "$service_socket"
+          sudo chown root:root "$service_dir"
+          test -w "$service_socket"
           node dist/main.js drop-sudo --user runner --group sudo
-          if test -w /var/run/docker.sock; then
+          if test -w "$service_socket"; then
             echo '::error::drop-sudo left a privileged service accessible.'
             exit 1
           fi

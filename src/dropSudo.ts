@@ -21,8 +21,18 @@ export interface DropSudoOptions {
 
 const LINUX_PLATFORM = "linux";
 const MACOS_PLATFORM = "darwin";
-const LINUX_PRIVILEGED_GROUPS = ["docker"];
-const LINUX_PRIVILEGED_SOCKETS = ["/var/run/docker.sock"];
+const LINUX_RUNTIME_DIRECTORY = "/run";
+
+interface LinuxGroup {
+  id: number;
+  name: string;
+  primary: boolean;
+}
+
+interface RootServiceSocket {
+  path: string;
+  groupId: number;
+}
 
 export async function dropSudo(options: DropSudoOptions): Promise<void> {
   const platform = process.platform;
@@ -78,14 +88,20 @@ async function dropSudoWithPrivileges(options: DropSudoOptions): Promise<void> {
 
   switch (process.platform) {
     case LINUX_PLATFORM: {
-      const groups = new Set([options.group, ...LINUX_PRIVILEGED_GROUPS]);
+      const serviceSockets = await findRootServiceSocketsForUser(options.user);
+      const groups = new Set([
+        options.group,
+        ...serviceSockets
+          .filter(({ group }) => !group.primary)
+          .map(({ group }) => group.name),
+      ]);
       for (const group of groups) {
         if (await removeUserFromLinuxGroup(options.user, group)) {
           changed = true;
         }
       }
-      for (const socketPath of LINUX_PRIVILEGED_SOCKETS) {
-        if (await restrictPrivilegedSocket(socketPath)) {
+      for (const { socket } of serviceSockets) {
+        if (await restrictRootServiceSocket(socket.path)) {
           changed = true;
         }
       }
@@ -179,10 +195,120 @@ async function removeUserFromLinuxGroup(
   return true;
 }
 
-async function restrictPrivilegedSocket(socketPath: string): Promise<boolean> {
+async function findRootServiceSocketsForUser(
+  user: string
+): Promise<Array<{ socket: RootServiceSocket; group: LinuxGroup }>> {
+  const groups = await getLinuxGroups(user);
+  const groupsById = new Map(groups.map((group) => [group.id, group]));
+  const sockets = await findRootServiceSockets(
+    LINUX_RUNTIME_DIRECTORY,
+    new Set(groupsById.keys())
+  );
+
+  return sockets.map((socket) => ({
+    socket,
+    group: groupsById.get(socket.groupId)!,
+  }));
+}
+
+async function getLinuxGroups(user: string): Promise<Array<LinuxGroup>> {
+  const [idsResult, namesResult, primaryResult] = await Promise.all([
+    execCommand("id", ["-G", user], { capture: true }),
+    execCommand("id", ["-Gn", user], { capture: true }),
+    execCommand("id", ["-g", user], { capture: true }),
+  ]);
+  const ids = splitFields(idsResult.stdout).map(parseNumericId);
+  const names = splitFields(namesResult.stdout);
+  const primaryId = parseNumericId(primaryResult.stdout.trim());
+
+  if (ids.length !== names.length) {
+    throw new Error(`Could not resolve group names for ${user}.`);
+  }
+
+  return ids.map((id, index) => ({
+    id,
+    name: names[index],
+    primary: id === primaryId,
+  }));
+}
+
+function splitFields(value: string): Array<string> {
+  return value
+    .trim()
+    .split(/\s+/)
+    .filter((field) => field.length > 0);
+}
+
+function parseNumericId(value: string): number {
+  if (!/^\d+$/.test(value)) {
+    throw new Error(`Invalid numeric ID: ${value}`);
+  }
+  return Number.parseInt(value, 10);
+}
+
+async function findRootServiceSockets(
+  directory: string,
+  groupIds: Set<number>,
+  ignoreUnreadable = false
+): Promise<Array<RootServiceSocket>> {
+  let entries;
+  try {
+    entries = await fs.readdir(directory, { withFileTypes: true });
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (
+      code === "ENOENT" ||
+      (ignoreUnreadable && (code === "EACCES" || code === "EPERM"))
+    ) {
+      return [];
+    }
+    throw error;
+  }
+
+  const sockets: Array<RootServiceSocket> = [];
+  for (const entry of entries) {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      sockets.push(
+        ...(await findRootServiceSockets(
+          entryPath,
+          groupIds,
+          ignoreUnreadable
+        ))
+      );
+      continue;
+    }
+    if (!entry.isSocket()) {
+      continue;
+    }
+
+    let stats;
+    try {
+      stats = await fs.lstat(entryPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        continue;
+      }
+      throw error;
+    }
+    if (
+      stats.isSocket() &&
+      stats.uid === 0 &&
+      (stats.mode & 0o020) !== 0 &&
+      groupIds.has(stats.gid)
+    ) {
+      sockets.push({ path: entryPath, groupId: stats.gid });
+    }
+  }
+  return sockets;
+}
+
+async function restrictRootServiceSocket(
+  socketPath: string
+): Promise<boolean> {
   let stats;
   try {
-    stats = await fs.stat(socketPath);
+    stats = await fs.lstat(socketPath);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return false;
@@ -193,14 +319,15 @@ async function restrictPrivilegedSocket(socketPath: string): Promise<boolean> {
   if (!stats.isSocket()) {
     throw new Error(`Expected ${socketPath} to be a socket.`);
   }
-
-  if (stats.uid === 0 && stats.gid === 0 && (stats.mode & 0o077) === 0) {
+  if (stats.uid !== 0) {
+    throw new Error(`Expected ${socketPath} to be owned by root.`);
+  }
+  if ((stats.mode & 0o077) === 0) {
     console.log(`Access to ${socketPath} is already restricted.`);
     return false;
   }
 
-  await fs.chown(socketPath, 0, 0);
-  await fs.chmod(socketPath, 0o600);
+  await fs.chmod(socketPath, stats.mode & 0o700);
   console.log(`Restricted access to ${socketPath}.`);
   return true;
 }
@@ -210,9 +337,20 @@ async function verifyPrivilegedSocketsRestricted(): Promise<void> {
     return;
   }
 
-  for (const socketPath of LINUX_PRIVILEGED_SOCKETS) {
+  const groupIds = new Set(
+    typeof process.getgroups === "function" ? process.getgroups() : []
+  );
+  if (typeof process.getgid === "function") {
+    groupIds.add(process.getgid());
+  }
+  const sockets = await findRootServiceSockets(
+    LINUX_RUNTIME_DIRECTORY,
+    groupIds,
+    true
+  );
+  for (const socket of sockets) {
     try {
-      await fs.access(socketPath, fsConstants.W_OK);
+      await fs.access(socket.path, fsConstants.W_OK);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code === "EACCES" || code === "EPERM" || code === "ENOENT") {
@@ -220,7 +358,7 @@ async function verifyPrivilegedSocketsRestricted(): Promise<void> {
       }
       throw error;
     }
-    throw new Error(`drop-sudo did not revoke access to ${socketPath}.`);
+    throw new Error(`drop-sudo did not revoke access to ${socket.path}.`);
   }
 }
 
