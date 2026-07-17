@@ -1,5 +1,10 @@
 # codex-action Changelog
 
+## Unreleased
+
+- Harden Linux `drop-sudo` by launching Codex behind a trusted gate under a distinct, locked system account with scoped filesystem ACLs, no supplementary groups or capabilities, and `no_new_privs` enabled.
+- **Breaking (Linux):** `drop-sudo` now requires a prompt and supports one protected invocation per fresh job; setup-only use and later direct `codex` invocations cannot preserve the clean execution identity.
+
 ## [v1.11](https://github.com/openai/codex-action/tree/v1.11) (2026-07-04)
 
 - [#116](https://github.com/openai/codex-action/pull/116) keep the permission profile helper backward compatible

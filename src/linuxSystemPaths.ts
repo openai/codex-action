@@ -1,0 +1,11 @@
+export const SUDO_PATH = "/usr/bin/sudo";
+export const SETPRIV_PATH = "/usr/bin/setpriv";
+export const SETFACL_PATH = "/usr/bin/setfacl";
+export const FIND_PATH = "/usr/bin/find";
+export const ENV_PATH = "/usr/bin/env";
+export const ID_PATH = "/usr/bin/id";
+export const GIT_PATH = "/usr/bin/git";
+export const USERADD_PATH = "/usr/sbin/useradd";
+export const USERDEL_PATH = "/usr/sbin/userdel";
+export const NOLOGIN_PATH = "/usr/sbin/nologin";
+export const SHELL_PATH = "/bin/sh";

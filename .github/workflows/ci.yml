@@ -7,6 +7,25 @@ on:
       - main
 
 jobs:
+  reject-promptless-linux-drop-sudo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Run promptless drop-sudo invocation
+        id: promptless
+        continue-on-error: true
+        uses: ./
+        with:
+          safety-strategy: drop-sudo
+
+      - name: Verify invocation was rejected
+        if: ${{ always() }}
+        env:
+          PROMPTLESS_OUTCOME: ${{ steps.promptless.outcome }}
+        run: test "$PROMPTLESS_OUTCOME" = failure
+
   verify:
     runs-on: ubuntu-latest
     steps:
@@ -32,6 +51,9 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      - name: Test privileged Linux identity transition
+        run: pnpm run test:privileged
 
       - name: Build bundles
         run: pnpm run build

@@ -73,10 +73,16 @@ inputs:
       Specify one of the following options (on Windows, the only supported option is `unsafe`):
 
       * `drop-sudo` (default, IRREVERSIBLE) Drop sudo privileges (if any) from
-        the default user before running Codex, and run Codex as that user. This
-        is only supported on Linux and macOS runners. This option is
-        irreversible: if the default user has sudo privileges, they will be
-        removed permanently for the duration of the job.
+        the default user before releasing the prompt to Codex. On Linux, Codex
+        runs under a separate, per-invocation system account with access to the
+        checkout, Codex home, and output files, but without supplementary
+        groups, capabilities, or permission to gain new privileges. On macOS,
+        Codex runs as the default user after sudo is revoked. This is only
+        supported on Linux and macOS runners. This option is irreversible: if
+        the default user has sudo privileges, its authorization is removed from
+        the host. Linux requires an Ubuntu-compatible tool layout, a prompt in
+        the same invocation, and a fresh job for every protected invocation.
+        Use this strategy only on disposable runners.
       * `unprivileged-user` Run Codex as the specified user specified by the
         `codex-user` option (the user must already exist). Note the caller is
         responsible for ensuring the specified user has the privileges it needs
@@ -117,6 +123,15 @@ outputs:
 runs:
   using: "composite"
   steps:
+    - name: Validate Linux drop-sudo invocation
+      if: ${{ runner.os == 'Linux' && inputs['safety-strategy'] == 'drop-sudo' && inputs.prompt == '' && inputs['prompt-file'] == '' }}
+      shell: bash
+      run: |
+        echo "Linux drop-sudo requires prompt or prompt-file so Codex can be launched with a clean execution identity." >&2
+        echo "Calling codex directly in a later step would inherit the runner's original supplementary groups." >&2
+        echo "Move the Codex invocation into this action, use a fresh job for each protected invocation, or explicitly select another safety strategy." >&2
+        exit 1
+
     - name: Validate Windows safety strategy
       if: ${{ runner.os == 'Windows' }}
       shell: bash
@@ -301,29 +316,19 @@ runs:
         fi
 
     - name: Drop sudo privilege, if appropriate
-      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' }}
+      if: ${{ runner.os == 'macOS' && inputs['safety-strategy'] == 'drop-sudo' && (inputs['openai-api-key'] != '' || inputs.prompt != '' || inputs['prompt-file'] != '') }}
       shell: bash
       env:
         ACTION_PATH: ${{ github.action_path }}
       run: |
-        case "${RUNNER_OS}" in
-          Linux)
-            node "$ACTION_PATH/dist/main.js" drop-sudo --user runner --group sudo
-            ;;
-          macOS)
-            node "$ACTION_PATH/dist/main.js" drop-sudo --user runner --group admin
-            ;;
-          *)
-            echo "Unsupported OS for drop-sudo: ${RUNNER_OS}" >&2
-            exit 1
-            ;;
-        esac
+        runner_user="$(/usr/bin/id -un)"
+        node "$ACTION_PATH/dist/main.js" drop-sudo --user "$runner_user" --group admin
 
     - name: Verify sudo privilege removed
-      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' }}
+      if: ${{ runner.os == 'macOS' && inputs['safety-strategy'] == 'drop-sudo' && (inputs['openai-api-key'] != '' || inputs.prompt != '' || inputs['prompt-file'] != '') }}
       shell: bash
       run: |
-        if sudo -n true 2>/dev/null; then
+        if /usr/bin/sudo -n true 2>/dev/null; then
           echo "Expected sudo to be disabled, but sudo succeeded." >&2
           exit 1
         fi

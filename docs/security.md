@@ -31,6 +31,36 @@ Permission profiles constrain commands that Codex runs; they do not replace the 
 `drop-sudo` or a deliberately configured `unprivileged-user` when a profile grants filesystem writes
 or network access.
 
+On Linux, `drop-sudo` creates a unique locked system account and grants it ACL access only to the
+checkout and the Codex state, schema, and output paths needed for the invocation. Codex starts under
+that distinct UID with one primary group, no process capabilities, and `no_new_privs`. A trusted gate
+prevents Codex configuration or MCP startup from running until the action has revoked the original
+job user's sudo authorization. The separate UID prevents Codex from signaling or attaching to
+runner-owned processes that still carry groups such as `docker`.
+
+The action does not grant root ACL access to the resolved Codex executable. Its canonical target must
+already be a world-readable and executable regular file, and each parent directory must already be
+world-searchable. This prevents a workflow-controlled `PATH` symlink from using setup as an ACL
+confused deputy for a runner- or privileged-group-only executable.
+
+ACL transfer is similarly limited to runner-owned roots and files. The action rejects symbolic-link
+components and non-runner-owned parent directories that are reachable only through one of the
+runner's supplementary groups, and it refuses to transfer ACLs through hard-linked files. Existing
+sockets, FIFOs, devices, foreign-owned files, and new files created concurrently by the runner do not
+receive the Codex account's ACL. This is what keeps a Docker socket or comparable group-owned runtime
+endpoint unavailable to the clean identity.
+
+The separate execution identity is currently Linux-only. On macOS, `drop-sudo` revokes sudo but
+continues to run Codex as the default user, so it does not clear other supplementary groups already
+present in that process. Do not treat the macOS strategy as isolation from non-sudo group resources.
+
+This clean execution identity applies only to Codex launched by the action. A direct `codex` command
+in a later workflow step is a new descendant of the runner service and inherits that service's
+original groups. The sudo revocation also means a second protected action invocation cannot prepare
+another identity in the same job. Put each protected invocation in a fresh job. On persistent
+self-hosted runners, prefer a preprovisioned `unprivileged-user`; Linux `drop-sudo` is designed for
+disposable runners and leaves its locked per-invocation account on the host.
+
 Permission profiles and the legacy `sandbox` input do not compose. The action rejects both inputs
 together, but a `sandbox_mode` setting in `codex-args` or a loaded `config.toml` also opts Codex into
 the legacy sandbox model. Review every loaded configuration layer when a workflow is expected to use
