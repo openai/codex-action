@@ -76,7 +76,9 @@ inputs:
         the default user before running Codex, and run Codex as that user. This
         is only supported on Linux and macOS runners. This option is
         irreversible: if the default user has sudo privileges, they will be
-        removed permanently for the duration of the job.
+        removed permanently for the duration of the job. On Linux,
+        group-authorized access to existing root-owned service sockets under
+        `/run` is also removed.
       * `unprivileged-user` Run Codex as the specified user specified by the
         `codex-user` option (the user must already exist). Note the caller is
         responsible for ensuring the specified user has the privileges it needs

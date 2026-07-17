@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { promises as fs } from "node:fs";
+import { constants as fsConstants, promises as fs } from "node:fs";
 import * as path from "node:path";
 
 interface ExecOptions {
@@ -21,6 +21,18 @@ export interface DropSudoOptions {
 
 const LINUX_PLATFORM = "linux";
 const MACOS_PLATFORM = "darwin";
+const LINUX_RUNTIME_DIRECTORY = "/run";
+
+interface LinuxGroup {
+  id: number;
+  name: string;
+  primary: boolean;
+}
+
+interface RootServiceSocket {
+  path: string;
+  groupId: number;
+}
 
 export async function dropSudo(options: DropSudoOptions): Promise<void> {
   const platform = process.platform;
@@ -61,6 +73,10 @@ export async function dropSudo(options: DropSudoOptions): Promise<void> {
   // Invalidate the sudo ticket again; ignore failures for the same reason as
   // above (some environments return an error when no timestamp exists).
   await execCommand("sudo", ["-K"], { ignoreFailure: true });
+
+  if (platform === LINUX_PLATFORM) {
+    await verifyPrivilegedSocketsRestricted();
+  }
 }
 
 async function dropSudoWithPrivileges(options: DropSudoOptions): Promise<void> {
@@ -72,25 +88,22 @@ async function dropSudoWithPrivileges(options: DropSudoOptions): Promise<void> {
 
   switch (process.platform) {
     case LINUX_PLATFORM: {
-      if (await isUserInGroup(options.user, options.group)) {
-        if (await commandExists("deluser")) {
-          await execCommand("deluser", [options.user, options.group]);
-          console.log(
-            `Used 'deluser ${options.user} ${options.group}' to drop sudo privilege.`
-          );
-        } else if (await commandExists("gpasswd")) {
-          await execCommand("gpasswd", ["-d", options.user, options.group]);
-          console.log(
-            `Used 'gpasswd -d ${options.user} ${options.group}' to drop sudo privilege.`
-          );
-        } else {
-          throw new Error("Neither deluser nor gpasswd available.");
+      const serviceSockets = await findRootServiceSocketsForUser(options.user);
+      const groups = new Set([
+        options.group,
+        ...serviceSockets
+          .filter(({ group }) => !group.primary)
+          .map(({ group }) => group.name),
+      ]);
+      for (const group of groups) {
+        if (await removeUserFromLinuxGroup(options.user, group)) {
+          changed = true;
         }
-        changed = true;
-      } else {
-        console.log(
-          `${options.user} is not a member of the ${options.group} group.`
-        );
+      }
+      for (const { socket } of serviceSockets) {
+        if (await restrictRootServiceSocket(socket.path)) {
+          changed = true;
+        }
       }
       break;
     }
@@ -158,6 +171,195 @@ async function dropSudoWithPrivileges(options: DropSudoOptions): Promise<void> {
   console.log(
     `Groups for ${options.user} after cleanup: ${groupsAfter.stdout.trim()}`
   );
+}
+
+async function removeUserFromLinuxGroup(
+  user: string,
+  group: string
+): Promise<boolean> {
+  if (!(await isUserInGroup(user, group))) {
+    console.log(`${user} is not a member of the ${group} group.`);
+    return false;
+  }
+
+  if (await commandExists("deluser")) {
+    await execCommand("deluser", [user, group]);
+    console.log(`Used 'deluser ${user} ${group}' to drop group access.`);
+  } else if (await commandExists("gpasswd")) {
+    await execCommand("gpasswd", ["-d", user, group]);
+    console.log(`Used 'gpasswd -d ${user} ${group}' to drop group access.`);
+  } else {
+    throw new Error("Neither deluser nor gpasswd available.");
+  }
+
+  return true;
+}
+
+async function findRootServiceSocketsForUser(
+  user: string
+): Promise<Array<{ socket: RootServiceSocket; group: LinuxGroup }>> {
+  const groups = await getLinuxGroups(user);
+  const groupsById = new Map(groups.map((group) => [group.id, group]));
+  const sockets = await findRootServiceSockets(
+    LINUX_RUNTIME_DIRECTORY,
+    new Set(groupsById.keys())
+  );
+
+  return sockets.map((socket) => ({
+    socket,
+    group: groupsById.get(socket.groupId)!,
+  }));
+}
+
+async function getLinuxGroups(user: string): Promise<Array<LinuxGroup>> {
+  const [idsResult, namesResult, primaryResult] = await Promise.all([
+    execCommand("id", ["-G", user], { capture: true }),
+    execCommand("id", ["-Gn", user], { capture: true }),
+    execCommand("id", ["-g", user], { capture: true }),
+  ]);
+  const ids = splitFields(idsResult.stdout).map(parseNumericId);
+  const names = splitFields(namesResult.stdout);
+  const primaryId = parseNumericId(primaryResult.stdout.trim());
+
+  if (ids.length !== names.length) {
+    throw new Error(`Could not resolve group names for ${user}.`);
+  }
+
+  return ids.map((id, index) => ({
+    id,
+    name: names[index],
+    primary: id === primaryId,
+  }));
+}
+
+function splitFields(value: string): Array<string> {
+  return value
+    .trim()
+    .split(/\s+/)
+    .filter((field) => field.length > 0);
+}
+
+function parseNumericId(value: string): number {
+  if (!/^\d+$/.test(value)) {
+    throw new Error(`Invalid numeric ID: ${value}`);
+  }
+  return Number.parseInt(value, 10);
+}
+
+async function findRootServiceSockets(
+  directory: string,
+  groupIds: Set<number>,
+  ignoreUnreadable = false
+): Promise<Array<RootServiceSocket>> {
+  let entries;
+  try {
+    entries = await fs.readdir(directory, { withFileTypes: true });
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (
+      code === "ENOENT" ||
+      (ignoreUnreadable && (code === "EACCES" || code === "EPERM"))
+    ) {
+      return [];
+    }
+    throw error;
+  }
+
+  const sockets: Array<RootServiceSocket> = [];
+  for (const entry of entries) {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      sockets.push(
+        ...(await findRootServiceSockets(
+          entryPath,
+          groupIds,
+          ignoreUnreadable
+        ))
+      );
+      continue;
+    }
+    if (!entry.isSocket()) {
+      continue;
+    }
+
+    let stats;
+    try {
+      stats = await fs.lstat(entryPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        continue;
+      }
+      throw error;
+    }
+    if (
+      stats.isSocket() &&
+      stats.uid === 0 &&
+      (stats.mode & 0o020) !== 0 &&
+      groupIds.has(stats.gid)
+    ) {
+      sockets.push({ path: entryPath, groupId: stats.gid });
+    }
+  }
+  return sockets;
+}
+
+async function restrictRootServiceSocket(
+  socketPath: string
+): Promise<boolean> {
+  let stats;
+  try {
+    stats = await fs.lstat(socketPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
+
+  if (!stats.isSocket()) {
+    throw new Error(`Expected ${socketPath} to be a socket.`);
+  }
+  if (stats.uid !== 0) {
+    throw new Error(`Expected ${socketPath} to be owned by root.`);
+  }
+  if ((stats.mode & 0o077) === 0) {
+    console.log(`Access to ${socketPath} is already restricted.`);
+    return false;
+  }
+
+  await fs.chmod(socketPath, stats.mode & 0o700);
+  console.log(`Restricted access to ${socketPath}.`);
+  return true;
+}
+
+async function verifyPrivilegedSocketsRestricted(): Promise<void> {
+  if (typeof process.getuid === "function" && process.getuid() === 0) {
+    return;
+  }
+
+  const groupIds = new Set(
+    typeof process.getgroups === "function" ? process.getgroups() : []
+  );
+  if (typeof process.getgid === "function") {
+    groupIds.add(process.getgid());
+  }
+  const sockets = await findRootServiceSockets(
+    LINUX_RUNTIME_DIRECTORY,
+    groupIds,
+    true
+  );
+  for (const socket of sockets) {
+    try {
+      await fs.access(socket.path, fsConstants.W_OK);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "EACCES" || code === "EPERM" || code === "ENOENT") {
+        continue;
+      }
+      throw error;
+    }
+    throw new Error(`drop-sudo did not revoke access to ${socket.path}.`);
+  }
 }
 
 async function ensurePasswordlessSudo(): Promise<void> {
