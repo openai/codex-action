@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -50,6 +51,7 @@ function spawnCodexAs({
   user,
   home,
   binDir,
+  actionPath,
   workspace,
   outputPath,
   prompt,
@@ -72,7 +74,7 @@ function spawnCodexAs({
       `PATH=${binDir}:${process.env.PATH ?? ""}`,
       ...Object.entries(extraEnv).map(([key, value]) => `${key}=${value}`),
       process.execPath,
-      mainPath,
+      actionPath,
       "run-codex-exec",
       "--prompt", prompt,
       "--prompt-file", "",
@@ -141,6 +143,7 @@ test(
     const tempDir = mkdtempSync(path.join(tmpdir(), "codex-drop-sudo-"));
     const home = path.join(tempDir, "home");
     const binDir = path.join(tempDir, "bin");
+    const actionPath = path.join(tempDir, "main.js");
     const workspace = path.join(tempDir, "workspace");
     const capturePath = path.join(tempDir, "capture.json");
     const outputPath = path.join(tempDir, "output.md");
@@ -149,6 +152,7 @@ test(
     const sudoersPath = `/etc/sudoers.d/${user}`;
     mkdirSync(binDir);
     mkdirSync(workspace);
+    copyFileSync(mainPath, actionPath);
 
     registerCleanup(t, {
       user,
@@ -183,13 +187,19 @@ test(
       sudoersPath,
     ]);
     const launcher = path.join(binDir, "codex");
+    const fakeCodexCopyPath = path.join(
+      binDir,
+      "fakeCodexLinuxIdentity.mjs"
+    );
+    copyFileSync(fakeCodexPath, fakeCodexCopyPath);
     writeFileSync(
       launcher,
-      `#!/bin/sh\nexec "${process.execPath}" "${fakeCodexPath}" "$@"\n`
+      `#!/bin/sh\nexec "${process.execPath}" "${fakeCodexCopyPath}" "$@"\n`
     );
     chmodSync(launcher, 0o755);
     writeFileSync(groupFile, "group-only\n");
     runSudo(["/usr/bin/chown", "-R", `${user}:${primaryGroup}`, tempDir]);
+    runSudo(["/usr/bin/chmod", "0711", tempDir]);
     runSudo(["/usr/bin/chown", `root:${supplementaryGroup}`, groupFile]);
     runSudo(["/usr/bin/chmod", "0640", groupFile]);
 
@@ -216,6 +226,7 @@ test(
       user,
       home,
       binDir,
+      actionPath,
       workspace,
       outputPath,
       prompt,
@@ -275,6 +286,7 @@ test(
     const tempDir = mkdtempSync(path.join(tmpdir(), "codex-drop-sudo-fail-"));
     const home = path.join(tempDir, "home");
     const binDir = path.join(tempDir, "bin");
+    const actionPath = path.join(tempDir, "main.js");
     const workspace = path.join(tempDir, "workspace");
     const outputPath = path.join(tempDir, "output.md");
     const startedPath = path.join(tempDir, "codex-started");
@@ -282,6 +294,7 @@ test(
     const sudoersPath = `/etc/sudoers.d/${user}`;
     mkdirSync(binDir);
     mkdirSync(workspace);
+    copyFileSync(mainPath, actionPath);
     registerCleanup(t, {
       user,
       groups: [sudoGroup, primaryGroup],
@@ -317,6 +330,7 @@ test(
     writeFileSync(launcher, `#!/bin/sh\n: > "$CODEX_STARTED"\n`);
     chmodSync(launcher, 0o755);
     runSudo(["/usr/bin/chown", "-R", `${user}:${primaryGroup}`, tempDir]);
+    runSudo(["/usr/bin/chmod", "0711", tempDir]);
 
     const uid = run("/usr/bin/id", ["-u", user]).stdout.trim();
     const gid = run("/usr/bin/id", ["-g", user]).stdout.trim();
@@ -330,6 +344,7 @@ test(
       user,
       home,
       binDir,
+      actionPath,
       workspace,
       outputPath,
       prompt: "must remain gated",
