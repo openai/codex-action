@@ -6,6 +6,7 @@ import pkg from "../package.json" assert { type: "json" };
 
 import { readServerInfo } from "./readServerInfo";
 import {
+  ModelProvider,
   SandboxMode,
   OutputSchemaSource,
   PromptSource,
@@ -165,6 +166,11 @@ export async function main() {
       "--codex-user <user>",
       "User to run codex exec as when using the 'unprivileged-user' safety strategy."
     )
+    .option(
+      "--provider <provider>",
+      "Model provider to use. One of 'openai' or 'amazon-bedrock' (defaults to 'openai' when empty).",
+      ""
+    )
     .action(
       async (options: {
         prompt: string;
@@ -181,6 +187,7 @@ export async function main() {
         effort: string;
         safetyStrategy: string;
         codexUser: string;
+        provider: string;
       }) => {
         const {
           prompt,
@@ -197,6 +204,7 @@ export async function main() {
           effort,
           safetyStrategy,
           codexUser,
+          provider,
         } = options;
 
         const normalizedPrompt = emptyAsNull(prompt);
@@ -258,6 +266,7 @@ export async function main() {
           effort: emptyAsNull(effort),
           safetyStrategy: toSafetyStrategy(safetyStrategy),
           codexUser: emptyAsNull(codexUser),
+          provider: toModelProvider(provider),
         });
       }
     );
@@ -345,6 +354,22 @@ function toSafetyStrategy(value: string): SafetyStrategy {
     default:
       throw new Error(
         `Invalid safety strategy: ${value}. Must be one of 'drop-sudo', 'read-only', 'unprivileged-user', or 'unsafe'.`
+      );
+  }
+}
+
+function toModelProvider(value: string): ModelProvider {
+  switch (value) {
+    // An empty value preserves the pre-provider behavior for callers that do
+    // not pass the option.
+    case "":
+    case "openai":
+      return "openai";
+    case "amazon-bedrock":
+      return "amazon-bedrock";
+    default:
+      throw new Error(
+        `Invalid provider: ${value}. Must be one of 'openai' or 'amazon-bedrock'.`
       );
   }
 }
