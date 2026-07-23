@@ -102,6 +102,7 @@ jobs:
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
 | `openai-api-key`         | Secret used to start the Responses API proxy when you are using OpenAI (default). Store it in `secrets`.                                       | `""`        |
 | `responses-api-endpoint` | Optional Responses API endpoint override, e.g. `https://example.openai.azure.com/openai/v1/responses`. Leave empty to use the proxy's default. | `""`        |
+| `provider`               | Model provider: `openai` (default) or `amazon-bedrock`. See [Amazon Bedrock](#amazon-bedrock).                                                | `"openai"`  |
 | `prompt`                 | Inline prompt text. Provide this or `prompt-file`.                                                                                             | `""`        |
 | `prompt-file`            | Path (relative to the repository root) of a file that contains the prompt. Provide this or `prompt`.                                           | `""`        |
 | `output-file`            | File where the final Codex message is written. Leave empty to skip writing a file.                                                             | `""`        |
@@ -212,6 +213,42 @@ Ultimately, your configured Action might look something like the following:
     responses-api-endpoint: "https://bolinfest-7804-resource.cognitiveservices.azure.com/openai/v1/responses"
     prompt: "Debug all the things."
 ```
+
+## Amazon Bedrock
+
+To run Codex against [OpenAI models on Amazon Bedrock](https://developers.openai.com/codex/amazon-bedrock), set `provider: amazon-bedrock`. Unlike the OpenAI and Azure configurations, this mode does not use the Responses API proxy or an API key input: the Codex CLI talks to Bedrock directly and authenticates through the standard AWS SDK credential chain.
+
+The recommended setup uses [GitHub's OIDC integration](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services) with [`aws-actions/configure-aws-credentials`](https://github.com/aws-actions/configure-aws-credentials), so no long-lived AWS keys are stored in the repository:
+
+```yaml
+permissions:
+  id-token: write
+  contents: read
+
+steps:
+  - uses: actions/checkout@v5
+
+  - uses: aws-actions/configure-aws-credentials@v4
+    with:
+      role-to-assume: arn:aws:iam::123456789012:role/codex-bedrock-role
+      aws-region: us-east-1
+
+  - uses: openai/codex-action@v1
+    with:
+      provider: amazon-bedrock
+      model: openai.gpt-5.6-sol
+      permission-profile: ":read-only"
+      prompt: "Review the public change."
+```
+
+Notes:
+
+- `AWS_REGION` (or `AWS_DEFAULT_REGION`) must be set in the environment; the action fails fast when it is missing. `aws-actions/configure-aws-credentials` sets it for you.
+- Any credential source supported by the AWS SDK works: OIDC-issued temporary credentials, `AWS_BEARER_TOKEN_BEDROCK` (a [Bedrock API key](https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html)), a shared config file, or an instance role on a self-hosted runner.
+- `openai-api-key` must be left empty when `provider: amazon-bedrock`; the action fails fast if both are set.
+- The `model` value must be a Bedrock model ID (for example `openai.gpt-5.6-sol`). Additional provider settings can be passed through `codex-args`, e.g. `-c model_providers.amazon-bedrock.aws.profile="my-profile"`.
+- Because there is no proxy in this mode, AWS credentials are visible to the Codex process through its environment. Prefer short-lived OIDC credentials scoped to an IAM role that only permits Bedrock inference; see [`security.md`](./docs/security.md#amazon-bedrock-and-aws-credentials).
+- `safety-strategy: unprivileged-user` is not supported with `provider: amazon-bedrock`: `sudo` resets the environment, so the credentials from the credential chain do not reach the Codex process. Use the default `drop-sudo` (or `read-only`) instead.
 
 ## Version History
 

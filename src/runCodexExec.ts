@@ -21,6 +21,8 @@ export type SafetyStrategy =
   | "unprivileged-user"
   | "unsafe";
 
+export type ModelProvider = "openai" | "amazon-bedrock";
+
 export type SandboxMode =
   | "read-only"
   | "workspace-write"
@@ -62,6 +64,7 @@ export async function runCodexExec({
   codexUser,
   sandbox,
   permissionProfile,
+  provider,
 }: {
   prompt: PromptSource;
   codexHome: string | null;
@@ -75,6 +78,7 @@ export async function runCodexExec({
   codexUser: string | null;
   sandbox: SandboxMode | null;
   permissionProfile: string | null;
+  provider: ModelProvider;
 }): Promise<void> {
   let input: string;
   switch (prompt.type) {
@@ -156,6 +160,15 @@ export async function runCodexExec({
     // https://github.com/openai/codex/blob/00debb6399eb51c4b9273f0bc012912c42fe6c91/docs/config.md#config
     // https://github.com/openai/codex/blob/00debb6399eb51c4b9273f0bc012912c42fe6c91/docs/config.md#model_reasoning_effort
     command.push("--config", `model_reasoning_effort="${effort}"`);
+  }
+
+  if (provider === "amazon-bedrock") {
+    // Authentication and region resolution are delegated to the AWS SDK
+    // credential chain in the Codex CLI (environment credentials, OIDC web
+    // identity, shared config, or an instance role), so no key material is
+    // handled here. Pushed before extraArgs so `codex-args` can still
+    // override provider settings.
+    command.push("--config", `model_provider="amazon-bedrock"`);
   }
 
   command.push(...extraArgs);

@@ -25,6 +25,7 @@ function runCodexExecWithFakeCodex({
   permissionProfile = "",
   extraArgs = "",
   safetyStrategy = "drop-sudo",
+  provider = "",
 } = {}) {
   const tempDir = mkdtempSync(path.join(tmpdir(), "codex-action-permissions-"));
   const capturePath = path.join(tempDir, "args.json");
@@ -90,6 +91,8 @@ writeFileSync(args[outputIndex + 1], "fake final message\\n");
       safetyStrategy,
       "--codex-user",
       "",
+      "--provider",
+      provider,
     ],
     {
       encoding: "utf8",
@@ -171,6 +174,56 @@ test("rejects permission-profile with a sandbox in codex-args", () => {
   assert.notEqual(result.status, 0);
   assert.equal(capturedArgs, null);
   assert.match(result.stderr, /sandbox override in `codex-args`/);
+});
+
+test("passes the amazon-bedrock model provider config to codex exec", () => {
+  const { result, capturedArgs } = runCodexExecWithFakeCodex({
+    provider: "amazon-bedrock",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const configIndex = capturedArgs.indexOf('model_provider="amazon-bedrock"');
+  assert.notEqual(configIndex, -1);
+  assert.equal(capturedArgs[configIndex - 1], "--config");
+});
+
+test("omits the model provider config for the default provider", () => {
+  const { result, capturedArgs } = runCodexExecWithFakeCodex();
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(
+    capturedArgs.includes('model_provider="amazon-bedrock"'),
+    false
+  );
+});
+
+test("keeps codex-args after the provider config so callers can override it", () => {
+  const { result, capturedArgs } = runCodexExecWithFakeCodex({
+    provider: "amazon-bedrock",
+    extraArgs:
+      '["--config", "model_providers.amazon-bedrock.aws.region=\\"us-east-1\\""]',
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const providerIndex = capturedArgs.indexOf(
+    'model_provider="amazon-bedrock"'
+  );
+  const regionIndex = capturedArgs.indexOf(
+    'model_providers.amazon-bedrock.aws.region="us-east-1"'
+  );
+  assert.notEqual(providerIndex, -1);
+  assert.notEqual(regionIndex, -1);
+  assert.ok(providerIndex < regionIndex);
+});
+
+test("rejects an unknown provider", () => {
+  const { result, capturedArgs } = runCodexExecWithFakeCodex({
+    provider: "azure",
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.equal(capturedArgs, null);
+  assert.match(result.stderr, /Invalid provider/);
 });
 
 for (const extraArgs of [

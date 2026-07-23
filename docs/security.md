@@ -64,6 +64,14 @@ To underscore the importance of specifying either `drop-sudo` or `unprivileged-u
 
 In the unfortunate event that your API key has leaked, see [this article](https://help.openai.com/en/articles/9047852-how-can-i-delete-my-api-key) that explains how to delete/revoke an API key using the [OpenAI Platform's API keys page](https://platform.openai.com/api-keys).
 
+## Amazon Bedrock and AWS credentials
+
+With `provider: amazon-bedrock` there is no Responses API proxy, so there is no key for the proxy to hide: the Codex CLI authenticates through the AWS SDK credential chain, and whatever credentials that chain resolves are visible to the Codex process through its environment. Reduce the impact of a leak by construction rather than by concealment:
+
+- Prefer short-lived credentials issued through [GitHub's OIDC integration](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services) with `aws-actions/configure-aws-credentials`. They expire on their own and never live in repository secrets.
+- Scope the assumed IAM role to Bedrock inference only. A leaked credential that can only invoke models is a bounded problem; one that can read your infrastructure is not.
+- Keep `drop-sudo` (the default) as the `safety-strategy`, and prefer a restrictive permission profile such as `:read-only` when reviewing untrusted pull requests, for the same reasons described above for `OPENAI_API_KEY`.
+
 ## Recommendation: run `openai/codex-action` as the last step in a job
 
 Particularly if you run Codex with loose permissions, there are no guarantees what the state of the host is when the `openai/codex-action` completes. For example:
