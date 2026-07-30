@@ -51,9 +51,9 @@ Instead, pass those values through `env:` and quote the shell variables that con
 ```yaml
 - name: Safe shell usage
   env:
-    PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+    PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
   run: |
-    git fetch origin "$PR_BASE_REF"
+    git fetch origin "$PR_BASE_SHA"
 ```
 
 <!-- TODO ## Protecting secrets -->
