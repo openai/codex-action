@@ -17,6 +17,12 @@ There is a lot of valuable context that can be used to fuel your invocation of C
 - **Repository instruction files**: when Codex operates on pull request-controlled content, files such as `AGENTS.md`, `AGENTS.override.md`, or configured fallback project docs from that content should be considered part of the untrusted input surface.
 - **Screenshots**: screenshots and other media have been known to be used as vehicles for prompt injection.
 
+## Pin pull request revisions to the triggering event
+
+Pull request refs such as `refs/pull/<number>/merge`, `refs/pull/<number>/head`, and branch names can change after a maintainer approves or triggers a workflow. Check out and fetch immutable commit SHAs from the triggering event instead. For `pull_request` workflows, `github.sha` is the event's merge commit; `github.event.pull_request.head.sha` and `github.event.pull_request.base.sha` identify the corresponding head and base commits.
+
+Checking the triggering actor's repository permissions does not establish trust in the checked-out code. In privileged workflows such as `pull_request_target` or `issue_comment`, do not execute fork-controlled code or load fork-controlled files as trusted instructions. Pinning a SHA prevents the revision from changing; it does not make untrusted code safe.
+
 ## Limit command permissions
 
 Use `permission-profile` to select the narrowest filesystem and network policy that still lets Codex
