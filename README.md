@@ -195,6 +195,58 @@ jobs:
 - If you need more control over the CLI invocation, pass flags through `codex-args` or create a `config.toml` in `codex-home`. Prefer a [permission profile](https://developers.openai.com/codex/permissions), starting with `:workspace` for workspace editing, over legacy sandbox flags for new integrations.
 - Once `openai/codex-action` is run once with `openai-api-key`, you can also call `codex` from subsequent scripts in your job. (You can omit `prompt` and `prompt-file` from the action in this case.)
 
+## GitHub MCP in Actions
+
+Codex can use MCP servers configured in the `config.toml` under `codex-home`. To give Codex
+access to GitHub tools from a workflow, create a temporary Codex home, write the official hosted
+GitHub MCP server configuration, and pass the token environment variable referenced by the config.
+
+```yaml
+name: Review with Codex and GitHub MCP
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  codex:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Configure GitHub MCP
+        run: |
+          mkdir -p "${{ runner.temp }}/codex-home"
+          cat > "${{ runner.temp }}/codex-home/config.toml" <<'EOF'
+          [mcp_servers.github]
+          url = "https://api.githubcopilot.com/mcp/"
+          bearer_token_env_var = "GITHUB_MCP_TOKEN"
+          EOF
+
+      - name: Run Codex with GitHub MCP
+        uses: openai/codex-action@v1
+        env:
+          GITHUB_MCP_TOKEN: ${{ secrets.GITHUB_MCP_TOKEN }}
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          codex-home: ${{ runner.temp }}/codex-home
+          permission-profile: ":workspace"
+          prompt: |
+            This is PR #${{ github.event.pull_request.number }} in ${{ github.repository }}.
+            Use the GitHub MCP tools to inspect the pull request and add a concise
+            review comment with any actionable findings.
+```
+
+Use a least-privilege token for `GITHUB_MCP_TOKEN`; for example, grant only the repository
+permissions required by the tools you expect Codex to call. The workflow's `github.token` remains
+read-only in this example, and checkout does not persist it into Git configuration, so Codex uses
+the explicit MCP token for GitHub write operations. See the [GitHub MCP Server Codex installation
+guide](https://github.com/github/github-mcp-server/blob/main/docs/installation-guides/install-codex.md)
+for current GitHub MCP server options and token guidance.
+
 ## Azure
 
 To configure the Action to use OpenAI models hosted on Azure, pay close attention to the following:
