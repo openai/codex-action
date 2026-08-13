@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   mkdtempSync,
   readFileSync,
@@ -60,6 +61,7 @@ test(
     const capturePath = path.join(tempDir, "capture.json");
     const outputPath = path.join(tempDir, "output.md");
     const codexPath = path.join(tempDir, "codex");
+    const bundledActionPath = path.join(tempDir, "main.js");
     const sudoersPath = `/etc/sudoers.d/${user}`;
     const originalSocket = statSync(dockerSocket);
     let userCreated = false;
@@ -94,6 +96,7 @@ test(
       `%${privilegedGroup} ALL=(ALL) NOPASSWD:ALL\n`
     );
     sudo(["install", "--mode=0440", sudoersSource, sudoersPath]);
+    copyFileSync(mainPath, bundledActionPath);
     writeFileSync(
       codexPath,
       `#!${process.execPath}
@@ -129,6 +132,7 @@ writeFileSync(output, "fake final message\\n");
 `
     );
     chmodSync(codexPath, 0o755);
+    chmodSync(tempDir, 0o711);
     sudo(["chown", "-R", user, tempDir]);
 
     const command = [
@@ -142,7 +146,7 @@ writeFileSync(output, "fake final message\\n");
       `CODEX_CAPTURE_PATH=${capturePath}`,
       "CODEX_TEST_MARKER=preserved",
       process.execPath,
-      mainPath,
+      bundledActionPath,
       "run-codex-exec",
       "--prompt",
       "test prompt\nsecond line",
