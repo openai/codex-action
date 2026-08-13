@@ -226,7 +226,8 @@ runs:
 
         (
           printenv PROXY_API_KEY | env -u PROXY_API_KEY "${args[@]}"
-        ) &
+        ) </dev/null >>"${RUNNER_TEMP:-/tmp}/codex-responses-api-proxy.log" 2>&1 &
+        disown
 
     - name: Wait for Responses API proxy
       if: ${{ inputs['openai-api-key'] != '' && steps.start_proxy.outputs.server_info_file_exists == 'false' }}
