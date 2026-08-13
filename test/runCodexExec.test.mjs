@@ -24,7 +24,7 @@ function runCodexExecWithFakeCodex({
   sandbox = "",
   permissionProfile = "",
   extraArgs = "",
-  safetyStrategy = "drop-sudo",
+  safetyStrategy = "unsafe",
 } = {}) {
   const tempDir = mkdtempSync(path.join(tmpdir(), "codex-action-permissions-"));
   const capturePath = path.join(tempDir, "args.json");

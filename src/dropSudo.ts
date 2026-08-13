@@ -21,7 +21,6 @@ export interface DropSudoOptions {
 
 const LINUX_PLATFORM = "linux";
 const MACOS_PLATFORM = "darwin";
-const DOCKER_SOCKET_PATH = "/var/run/docker.sock";
 
 export async function dropSudo(options: DropSudoOptions): Promise<void> {
   const platform = process.platform;
@@ -73,39 +72,26 @@ async function dropSudoWithPrivileges(options: DropSudoOptions): Promise<void> {
 
   switch (process.platform) {
     case LINUX_PLATFORM: {
-      for (const group of new Set([options.group, "docker"])) {
-        if (await isUserInGroup(options.user, group)) {
-          if (await commandExists("deluser")) {
-            await execCommand("deluser", [options.user, group]);
-            console.log(
-              `Used 'deluser ${options.user} ${group}' to drop ${group} privilege.`
-            );
-          } else if (await commandExists("gpasswd")) {
-            await execCommand("gpasswd", ["-d", options.user, group]);
-            console.log(
-              `Used 'gpasswd -d ${options.user} ${group}' to drop ${group} privilege.`
-            );
-          } else {
-            throw new Error("Neither deluser nor gpasswd available.");
-          }
-          changed = true;
+      if (await isUserInGroup(options.user, options.group)) {
+        if (await commandExists("deluser")) {
+          await execCommand("deluser", [options.user, options.group]);
+          console.log(
+            `Used 'deluser ${options.user} ${options.group}' to drop sudo privilege.`
+          );
+        } else if (await commandExists("gpasswd")) {
+          await execCommand("gpasswd", ["-d", options.user, options.group]);
+          console.log(
+            `Used 'gpasswd -d ${options.user} ${options.group}' to drop sudo privilege.`
+          );
         } else {
-          console.log(`${options.user} is not a member of the ${group} group.`);
+          throw new Error("Neither deluser nor gpasswd available.");
         }
+        changed = true;
+      } else {
+        console.log(
+          `${options.user} is not a member of the ${options.group} group.`
+        );
       }
-
-      try {
-        // Existing runner processes retain their inherited docker group even
-        // after account membership changes, so revoke access on the socket too.
-        await fs.chmod(DOCKER_SOCKET_PATH, 0o600);
-        console.log(`Restricted ${DOCKER_SOCKET_PATH} to its owner.`);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-          throw error;
-        }
-        console.log(`${DOCKER_SOCKET_PATH} does not exist.`);
-      }
-
       break;
     }
     case MACOS_PLATFORM: {

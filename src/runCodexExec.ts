@@ -5,6 +5,39 @@ import os from "os";
 import { setOutput } from "@actions/core";
 import { checkOutput } from "./checkOutput";
 
+const LINUX_DROP_SUDO_SCRIPT = String.raw`
+node="$1"
+action="$2"
+user="$3"
+uid="$4"
+gid="$5"
+home="$6"
+runner_path="$7"
+shift 7
+
+if [ ! -x /usr/bin/setpriv ]; then
+  echo "Linux drop-sudo requires /usr/bin/setpriv." >&2
+  exit 1
+fi
+
+/usr/bin/env -u NODE_OPTIONS "$node" "$action" drop-sudo --root-phase --user "$user" --group sudo || exit $?
+if /usr/bin/sudo -n -u "$user" -- /usr/bin/sudo -n true 2>/dev/null; then
+  echo "Expected sudo to be disabled, but sudo succeeded." >&2
+  exit 1
+fi
+echo "Confirmed sudo privilege is disabled."
+
+exec /usr/bin/setpriv \
+  --reuid="$uid" \
+  --regid="$gid" \
+  --clear-groups \
+  --no-new-privs \
+  -- /usr/bin/env \
+  -u SUDO_COMMAND -u SUDO_USER -u SUDO_UID -u SUDO_GID \
+  "HOME=$home" "USER=$user" "LOGNAME=$user" "PATH=$runner_path" \
+  "$@"
+`;
+
 export type PromptSource =
   | {
       type: "inline";
@@ -109,8 +142,43 @@ export async function runCodexExec({
 
   const command: Array<string> = [];
 
+  const isLinuxDropSudo =
+    safetyStrategy === "drop-sudo" && process.platform === "linux";
   let pathToCodex = "codex";
-  if (safetyStrategy === "unprivileged-user") {
+  if (isLinuxDropSudo) {
+    const uid = process.getuid?.();
+    const gid = process.getgid?.();
+    if (uid == null || gid == null || uid === 0) {
+      throw new Error("Linux drop-sudo requires a non-root runner user.");
+    }
+
+    pathToCodex = (await checkOutput(["which", "codex"])).trim();
+    const user = os.userInfo();
+    command.push(
+      "/usr/bin/sudo",
+      "-n",
+      "-E",
+      "--",
+      "/usr/bin/env",
+      "-u",
+      "ENV",
+      "-u",
+      "BASH_ENV",
+      "-u",
+      "SHELLOPTS",
+      "/bin/sh",
+      "-c",
+      LINUX_DROP_SUDO_SCRIPT,
+      "codex-action-drop-sudo",
+      process.execPath,
+      process.argv[1],
+      user.username,
+      String(uid),
+      String(gid),
+      process.env.HOME ?? user.homedir,
+      process.env.PATH ?? ""
+    );
+  } else if (safetyStrategy === "unprivileged-user") {
     if (codexUser == null) {
       throw new Error(
         "codexUser must be specified when using the 'unprivileged-user' safety strategy."
