@@ -21,7 +21,7 @@ export interface DropSudoOptions {
 
 const LINUX_PLATFORM = "linux";
 const MACOS_PLATFORM = "darwin";
-const SUDO_PATH = "/usr/bin/sudo";
+const DOCKER_SOCKET_PATH = "/var/run/docker.sock";
 
 export async function dropSudo(options: DropSudoOptions): Promise<void> {
   const platform = process.platform;
@@ -40,15 +40,15 @@ export async function dropSudo(options: DropSudoOptions): Promise<void> {
   await ensurePasswordlessSudo();
   // `sudo -K` invalidates cached credentials but exits non-zero when no ticket
   // exists yet. Ignore that failure so fresh runners don't blow up.
-  await execCommand(SUDO_PATH, ["-K"], { ignoreFailure: true });
+  await execCommand("sudo", ["-K"], { ignoreFailure: true });
 
   const execArgs = [...process.execArgv];
   const scriptPath = process.argv[1];
   // Re-enter this command under sudo so the privilege-dropping work happens in a
   // single place regardless of the host platform.
-  await execCommand(SUDO_PATH, [
+  await execCommand("sudo", [
     "-n",
-    process.execPath,
+    "node",
     ...execArgs,
     scriptPath,
     "drop-sudo",
@@ -61,18 +61,7 @@ export async function dropSudo(options: DropSudoOptions): Promise<void> {
 
   // Invalidate the sudo ticket again; ignore failures for the same reason as
   // above (some environments return an error when no timestamp exists).
-  await execCommand(SUDO_PATH, ["-K"], { ignoreFailure: true });
-}
-
-export async function verifySudoUnavailable(): Promise<void> {
-  const result = await execCommand(SUDO_PATH, ["-n", "true"], {
-    capture: true,
-    ignoreFailure: true,
-  });
-  if (result.code === 0) {
-    throw new Error("Expected sudo to be disabled, but sudo succeeded.");
-  }
-  console.log("Confirmed sudo privilege is disabled.");
+  await execCommand("sudo", ["-K"], { ignoreFailure: true });
 }
 
 async function dropSudoWithPrivileges(options: DropSudoOptions): Promise<void> {
@@ -84,26 +73,39 @@ async function dropSudoWithPrivileges(options: DropSudoOptions): Promise<void> {
 
   switch (process.platform) {
     case LINUX_PLATFORM: {
-      if (await isUserInGroup(options.user, options.group)) {
-        if (await commandExists("deluser")) {
-          await execCommand("deluser", [options.user, options.group]);
-          console.log(
-            `Used 'deluser ${options.user} ${options.group}' to drop sudo privilege.`
-          );
-        } else if (await commandExists("gpasswd")) {
-          await execCommand("gpasswd", ["-d", options.user, options.group]);
-          console.log(
-            `Used 'gpasswd -d ${options.user} ${options.group}' to drop sudo privilege.`
-          );
+      for (const group of new Set([options.group, "docker"])) {
+        if (await isUserInGroup(options.user, group)) {
+          if (await commandExists("deluser")) {
+            await execCommand("deluser", [options.user, group]);
+            console.log(
+              `Used 'deluser ${options.user} ${group}' to drop ${group} privilege.`
+            );
+          } else if (await commandExists("gpasswd")) {
+            await execCommand("gpasswd", ["-d", options.user, group]);
+            console.log(
+              `Used 'gpasswd -d ${options.user} ${group}' to drop ${group} privilege.`
+            );
+          } else {
+            throw new Error("Neither deluser nor gpasswd available.");
+          }
+          changed = true;
         } else {
-          throw new Error("Neither deluser nor gpasswd available.");
+          console.log(`${options.user} is not a member of the ${group} group.`);
         }
-        changed = true;
-      } else {
-        console.log(
-          `${options.user} is not a member of the ${options.group} group.`
-        );
       }
+
+      try {
+        // Existing runner processes retain their inherited docker group even
+        // after account membership changes, so revoke access on the socket too.
+        await fs.chmod(DOCKER_SOCKET_PATH, 0o600);
+        console.log(`Restricted ${DOCKER_SOCKET_PATH} to its owner.`);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          throw error;
+        }
+        console.log(`${DOCKER_SOCKET_PATH} does not exist.`);
+      }
+
       break;
     }
     case MACOS_PLATFORM: {
@@ -172,9 +174,9 @@ async function dropSudoWithPrivileges(options: DropSudoOptions): Promise<void> {
   );
 }
 
-export async function ensurePasswordlessSudo(): Promise<void> {
+async function ensurePasswordlessSudo(): Promise<void> {
   try {
-    await execCommand(SUDO_PATH, ["-n", "true"], { capture: true });
+    await execCommand("sudo", ["-n", "true"], { capture: true });
   } catch (error) {
     throw new Error("Unexpected: passwordless sudo not available.");
   }

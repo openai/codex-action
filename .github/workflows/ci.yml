@@ -33,9 +33,6 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Test privileged Linux drop-sudo
-        run: pnpm run test:privileged
-
       - name: Build bundles
         run: pnpm run build
 

@@ -76,9 +76,8 @@ inputs:
         the default user before running Codex, and run Codex as that user. This
         is only supported on Linux and macOS runners. This option is
         irreversible: if the default user has sudo privileges, they will be
-        removed permanently for the duration of the job. On Linux, Codex
-        processes launched by this action also run with only the user's primary
-        group and without process capabilities.
+        removed permanently for the duration of the job. On Linux, access to
+        the Docker daemon is also removed for the duration of the job.
       * `unprivileged-user` Run Codex as the specified user specified by the
         `codex-user` option (the user must already exist). Note the caller is
         responsible for ensuring the specified user has the privileges it needs
@@ -303,7 +302,7 @@ runs:
         fi
 
     - name: Drop sudo privilege, if appropriate
-      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' && (runner.os != 'Linux' || (inputs.prompt == '' && inputs['prompt-file'] == '')) }}
+      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' }}
       shell: bash
       env:
         ACTION_PATH: ${{ github.action_path }}
@@ -311,7 +310,6 @@ runs:
         case "${RUNNER_OS}" in
           Linux)
             node "$ACTION_PATH/dist/main.js" drop-sudo --user runner --group sudo
-            echo "::warning::Direct Codex commands in later steps do not pass through the action's reduced Linux process identity."
             ;;
           macOS)
             node "$ACTION_PATH/dist/main.js" drop-sudo --user runner --group admin
@@ -323,7 +321,7 @@ runs:
         esac
 
     - name: Verify sudo privilege removed
-      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' && (runner.os != 'Linux' || (inputs.prompt == '' && inputs['prompt-file'] == '')) }}
+      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' }}
       shell: bash
       run: |
         if sudo -n true 2>/dev/null; then

@@ -160,7 +160,7 @@ The `safety-strategy` input determines how much access Codex receives on the run
 
 See [Protecting your `OPENAI_API_KEY`](./docs/security.md#protecting-your-openai_api_key) on the Security page for important details on this topic.
 
-- **`drop-sudo` (default)** — On Linux and macOS runners, the action revokes the default user’s `sudo` membership before invoking Codex. On Linux, Codex processes launched by the action also run with only the user’s primary group and without process capabilities. This change lasts for the rest of the job, so subsequent steps cannot rely on `sudo`. This is usually the safest choice on GitHub-hosted runners.
+- **`drop-sudo` (default)** — On Linux and macOS runners, the action revokes the default user’s `sudo` membership before invoking Codex. On Linux, it also removes the user from the `docker` group and restricts access to the Docker daemon socket. These changes last for the rest of the job, so subsequent steps cannot rely on `sudo` or Docker. This is usually the safest choice on GitHub-hosted runners.
 - **`unprivileged-user`** — Runs Codex as the user provided via `codex-user`. Use this if you manage your own runner with a pre-created unprivileged account. Ensure the user can read the repository checkout and any files Codex needs. See [`unprivileged-user.yml`](./examples/unprivileged-user.yml) for an example of how to configure such an account on `ubuntu-latest`.
 - **`read-only`** — Executes Codex in a read-only sandbox. Codex can view files but cannot mutate the filesystem or access the network directly. The OpenAI API key still flows through the proxy, so Codex could read it if it can reach process memory.
 - **`unsafe`** — No privilege reduction. Codex runs as the default `runner` user (which typically has `sudo`). Only use this when you fully trust the prompt. On Windows runners this is the only supported choice and the action will fail if another option is provided.
@@ -168,7 +168,7 @@ See [Protecting your `OPENAI_API_KEY`](./docs/security.md#protecting-your-openai
 ### Operating system support
 
 - **Windows**: GitHub-hosted Windows runners lack a supported sandbox. Set `safety-strategy: unsafe`. The action validates this and exits early otherwise.
-- **Linux/macOS**: All options for `safety-strategy` are supported. Linux `drop-sudo` expects a non-root runner with passwordless sudo and `setpriv` in `/usr/bin`; GitHub-hosted Ubuntu runners provide this setup. Again, if you pick `drop-sudo`, remember that later steps in your `job` that rely on `sudo` will fail. If you do need to run code that requires `sudo` after `openai/codex-action` has run, one option is to pipe the output of `openai/codex-action` to a fresh `job` on a new host and to continue your workflow from there.
+- **Linux/macOS**: All options for `safety-strategy` are supported. Again, if you pick `drop-sudo`, remember that later steps in your `job` that rely on `sudo` or Linux Docker access will fail. If you do need to run code that requires those privileges after `openai/codex-action` has run, one option is to pipe the output of `openai/codex-action` to a fresh `job` on a new host and to continue your workflow from there.
 - **GitHub-hosted Linux runners**: The action enables unprivileged user namespaces during setup and clears Ubuntu's AppArmor gate when present. This avoids the `bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted` failure seen on newer hosted images, including workflows that use the action once to bootstrap Codex and then call `codex` in later steps. Self-hosted Linux runners still need equivalent kernel support configured ahead of time.
 
 ## Outputs
@@ -193,7 +193,7 @@ jobs:
 - To use a non-default Responses endpoint (for example Azure OpenAI), set `responses-api-endpoint` to the provider's URL while keeping `openai-api-key` populated; the proxy will still send `Authorization: Bearer <key>` upstream.
 - If you want Codex to have access to a narrow set of privileged functionality, consider running a local MCP server that can perform these actions and configure Codex to use it.
 - If you need more control over the CLI invocation, pass flags through `codex-args` or create a `config.toml` in `codex-home`. Prefer a [permission profile](https://developers.openai.com/codex/permissions), starting with `:workspace` for workspace editing, over legacy sandbox flags for new integrations.
-- You can call `codex` from subsequent scripts after using the action once with `openai-api-key`, but direct commands do not pass through the action’s reduced Linux process identity.
+- Once `openai/codex-action` is run once with `openai-api-key`, you can also call `codex` from subsequent scripts in your job. (You can omit `prompt` and `prompt-file` from the action in this case.)
 
 ## Azure
 
