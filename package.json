@@ -11,6 +11,7 @@
   "dependencies": {
     "@actions/core": "^1.11.1",
     "@octokit/graphql": "^8.2.2",
+    "@octokit/plugin-retry": "^7.2.1",
     "@octokit/rest": "^21.1.1",
     "commander": "14.0.1",
     "string-argv": "0.3.2"

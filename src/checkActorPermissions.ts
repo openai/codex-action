@@ -1,5 +1,8 @@
 import * as core from "@actions/core";
+import { retry } from "@octokit/plugin-retry";
 import { Octokit } from "@octokit/rest";
+
+const RetryingOctokit = Octokit.plugin(retry);
 
 export type WriteAccessCheck =
   | {
@@ -124,7 +127,7 @@ export async function ensureActorHasWriteAccess(
   const baseUrl = process.env.GITHUB_API_URL?.trim();
   const octokit =
     options.octokit ??
-    new Octokit({
+    new RetryingOctokit({
       auth: token,
       ...(baseUrl ? { baseUrl } : {}),
     });

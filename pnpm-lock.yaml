@@ -14,6 +14,9 @@ importers:
       '@octokit/graphql':
         specifier: ^8.2.2
         version: 8.2.2
+      '@octokit/plugin-retry':
+        specifier: ^7.2.1
+        version: 7.2.1(@octokit/core@6.1.6)
       '@octokit/rest':
         specifier: ^21.1.1
         version: 21.1.1
@@ -236,6 +239,12 @@ packages:
     peerDependencies:
       '@octokit/core': '>=6'
 
+  '@octokit/plugin-retry@7.2.1':
+    resolution: {integrity: sha512-wUc3gv0D6vNHpGxSaR3FlqJpTXGWgqmk607N9L3LvPL4QjaxDgX/1nY2mGpT37Khn+nlIXdljczkRnNdTTV3/A==}
+    engines: {node: '>= 18'}
+    peerDependencies:
+      '@octokit/core': '>=6'
+
   '@octokit/request-error@6.1.8':
     resolution: {integrity: sha512-WEi/R0Jmq+IJKydWlKDmryPcmdYSVjL3ekaiEL1L9eo1sUnqMJ+grqmC9cjk7CA7+b2/T397tO5d8YLOH3qYpQ==}
     engines: {node: '>= 18'}
@@ -259,6 +268,9 @@ packages:
 
   before-after-hook@3.0.2:
     resolution: {integrity: sha512-Nik3Sc0ncrMK4UUdXQmAnRtzmNQTAAXmXIopizwZ1W1t8QmfJj+zL4OA2I7XPTPW5z5TDqv4hRo/JzouDJnX3A==}
+
+  bottleneck@2.19.5:
+    resolution: {integrity: sha512-VHiNCbI1lKdl44tGrhNfU3lup0Tj/ZBMJB5/2ZbNXRCPuRCO7ed2mgcK4r17y+KB2EfuYuRaVlwNbAeaWGSpbw==}
 
   commander@14.0.1:
     resolution: {integrity: sha512-2JkV3gUZUVrbNA+1sjBOYLsMZ5cEEl8GTFP2a4AVz5hvasAMCQ1D2l2le/cX+pV4N6ZU17zjUahLpIXRrnWL8A==}
@@ -428,6 +440,13 @@ snapshots:
       '@octokit/core': 6.1.6
       '@octokit/types': 13.10.0
 
+  '@octokit/plugin-retry@7.2.1(@octokit/core@6.1.6)':
+    dependencies:
+      '@octokit/core': 6.1.6
+      '@octokit/request-error': 6.1.8
+      '@octokit/types': 14.1.0
+      bottleneck: 2.19.5
+
   '@octokit/request-error@6.1.8':
     dependencies:
       '@octokit/types': 14.1.0
@@ -460,6 +479,8 @@ snapshots:
       undici-types: 5.26.5
 
   before-after-hook@3.0.2: {}
+
+  bottleneck@2.19.5: {}
 
   commander@14.0.1: {}
 
