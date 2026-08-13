@@ -353,7 +353,7 @@ runs:
         FORCE_COLOR: 1
       shell: bash
       run: |
-        node "$ACTION_PATH/dist/main.js" run-codex-exec \
+        exec env -u NODE_OPTIONS node --disable-sigusr1 "$ACTION_PATH/dist/main.js" run-codex-exec \
             --prompt "${CODEX_PROMPT}" \
             --prompt-file "${CODEX_PROMPT_FILE}" \
             --output-file "$CODEX_OUTPUT_FILE" \
