@@ -41,9 +41,9 @@ inputs:
     required: false
     default: ""
   codex-version:
-    description: "Version of `@openai/codex` to install."
+    description: "Exact version of `@openai/codex` and `@openai/codex-responses-api-proxy` to install."
     required: false
-    default: ""
+    default: "0.147.0"
   codex-args:
     description: "Additional args to pass through to `codex exec`. If this value starts with `[`, it will be parsed as a JSON array; otherwise, it will be parsed as a shell-like string."
     required: false
@@ -149,6 +149,16 @@ runs:
           --allow-bots "$ALLOW_BOTS" \
           --allow-bot-users "$ALLOW_BOT_USERS" \
           --allow-users "$ALLOW_USERS"
+
+    - name: Validate Codex version
+      shell: bash
+      env:
+        CODEX_VERSION: ${{ inputs['codex-version'] }}
+      run: |
+        if [[ ! "$CODEX_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?(\+[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
+          echo "codex-version must be an exact semantic version (for example, 0.147.0)." >&2
+          exit 1
+        fi
 
     - name: Install Codex CLI
       shell: bash
