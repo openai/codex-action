@@ -1,0 +1,38 @@
+name: "Example: Use GitHub MCP from Codex"
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  run-codex-with-github-mcp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure GitHub MCP
+        shell: bash
+        env:
+          CODEX_HOME: ${{ runner.temp }}/codex-home
+        run: |
+          mkdir -p "$CODEX_HOME"
+          cat > "$CODEX_HOME/config.toml" <<'EOF'
+          [mcp_servers.github]
+          url = "https://api.githubcopilot.com/mcp/"
+          bearer_token_env_var = "GITHUB_TOKEN"
+          required = true
+          EOF
+
+      - name: Run Codex with GitHub MCP
+        uses: openai/codex-action@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          codex-home: ${{ runner.temp }}/codex-home
+          prompt: |
+            Inspect this repository and use the GitHub MCP tools when GitHub
+            context is useful. Do not make GitHub changes unless the task
+            explicitly requires them.
