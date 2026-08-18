@@ -211,6 +211,7 @@ runs:
       env:
         SERVER_INFO_FILE: ${{ steps.derive_server_info.outputs.server_info_file }}
         PROXY_API_KEY: ${{ inputs['openai-api-key'] }}
+        PROXY_LOG_FILE: ${{ runner.temp }}/codex-responses-api-proxy-${{ github.run_id }}.log
         UPSTREAM_URL: ${{ inputs['responses-api-endpoint'] }}
       shell: bash
       run: |
@@ -226,12 +227,13 @@ runs:
 
         (
           printenv PROXY_API_KEY | env -u PROXY_API_KEY "${args[@]}"
-        ) &
+        ) >>"$PROXY_LOG_FILE" 2>&1 &
 
     - name: Wait for Responses API proxy
       if: ${{ inputs['openai-api-key'] != '' && steps.start_proxy.outputs.server_info_file_exists == 'false' }}
       shell: bash
       env:
+        PROXY_LOG_FILE: ${{ runner.temp }}/codex-responses-api-proxy-${{ github.run_id }}.log
         SERVER_INFO_FILE: ${{ steps.derive_server_info.outputs.server_info_file }}
       run: |
         for _ in {1..10}; do
@@ -242,6 +244,10 @@ runs:
         done
         if [ ! -s "$SERVER_INFO_FILE" ]; then
           echo "responses-api-proxy did not write server info" >&2
+          if [ -s "$PROXY_LOG_FILE" ]; then
+            echo "Responses API proxy log:" >&2
+            cat "$PROXY_LOG_FILE" >&2
+          fi
           exit 1
         fi
 
