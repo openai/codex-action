@@ -136,6 +136,19 @@ runs:
       with:
         node-version: "24"
 
+    - name: Validate action inputs
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        CODEX_PROMPT: ${{ inputs.prompt }}
+        CODEX_PROMPT_FILE: ${{ inputs['prompt-file'] }}
+        CODEX_OUTPUT_SCHEMA: ${{ inputs['output-schema'] }}
+        CODEX_OUTPUT_SCHEMA_FILE: ${{ inputs['output-schema-file'] }}
+        CODEX_SANDBOX: ${{ inputs.sandbox }}
+        CODEX_PERMISSION_PROFILE: ${{ inputs['permission-profile'] }}
+        CODEX_SAFETY_STRATEGY: ${{ inputs['safety-strategy'] }}
+      run: node "$ACTION_PATH/scripts/validateActionInputs.mjs"
+
     - name: Check repository write access
       env:
         ACTION_PATH: ${{ github.action_path }}
