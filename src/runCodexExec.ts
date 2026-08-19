@@ -261,6 +261,7 @@ type ResolvedOutputSchema =
       type: "temp";
       file: string;
       dir: string;
+      runAsUser: string | null;
     };
 
 async function createTempOutputFile({
@@ -307,10 +308,45 @@ async function resolveOutputSchema(
     case "inline": {
       const dir = await createTempDir("codex-output-schema-", runAsUser);
       const file = path.join(dir, "schema.json");
-      await writeFile(file, schema.content);
-      return { type: "temp", file, dir };
+      await writeOutputSchema(file, schema.content, runAsUser);
+      return { type: "temp", file, dir, runAsUser };
     }
   }
+}
+
+async function writeOutputSchema(
+  file: string,
+  content: string,
+  runAsUser: string | null
+): Promise<void> {
+  if (runAsUser == null) {
+    await writeFile(file, content);
+    return;
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn("sudo", ["-u", runAsUser, "--", "tee", file], {
+      env: process.env,
+      stdio: ["pipe", "ignore", "inherit"],
+    });
+
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(`sudo exited with code ${code}`));
+        return;
+      }
+      resolve();
+    });
+
+    if (child.stdin == null) {
+      child.kill();
+      reject(new Error("failed to open stdin for output schema"));
+      return;
+    }
+    child.stdin.on("error", reject);
+    child.stdin.end(content);
+  });
 }
 
 async function cleanupOutputSchema(
@@ -324,7 +360,11 @@ async function cleanupOutputSchema(
     case "explicit":
       return;
     case "temp":
-      await rm(schema.dir, { recursive: true, force: true });
+      if (schema.runAsUser == null) {
+        await rm(schema.dir, { recursive: true, force: true });
+      } else {
+        await checkOutput(["sudo", "rm", "-rf", "--", schema.dir]);
+      }
       return;
   }
 }
