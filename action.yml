@@ -45,7 +45,10 @@ inputs:
     required: false
     default: ""
   codex-args:
-    description: "Additional args to pass through to `codex exec`. If this value starts with `[`, it will be parsed as a JSON array; otherwise, it will be parsed as a shell-like string."
+    description: |
+      Additional args to pass to `codex exec`, as a JSON array of strings or a shell-like string.
+      Existing safe flags and configuration overrides remain supported; protected runs reject
+      arguments that conflict with enforced permission, trust, provider, or command protections.
     required: false
     default: ""
   output-schema:
@@ -65,7 +68,7 @@ inputs:
     required: false
     default: ""
   codex-home:
-    description: "Directory to use as the Codex home directory. If empty, the default Codex home directory will be used."
+    description: "Trusted Codex home/config directory. If empty, the default Codex home directory will be used."
     required: false
     default: ""
   safety-strategy:
@@ -75,8 +78,15 @@ inputs:
       * `drop-sudo` (default, IRREVERSIBLE) Drop sudo privileges (if any) from
         the default user before running Codex, and run Codex as that user. This
         is only supported on Linux and macOS runners. This option is
-        irreversible: if the default user has sudo privileges, they will be
-        removed permanently for the duration of the job.
+        irreversible: account and host changes can outlive a job on reused
+        self-hosted runners. On Linux, access to
+        existing root-owned service sockets under `/run` that the runner can
+        write, including Docker, is also removed. On Linux, Codex starts with
+        `no_new_privs`, no supplementary groups, and empty host-namespace
+        capability sets. Descendants inherit `no_new_privs`; capabilities in
+        new user namespaces do not grant host privileges. Bubblewrap-backed
+        modes require unprivileged user namespaces; setuid-only bubblewrap
+        installations are not supported.
       * `unprivileged-user` Run Codex as the specified user specified by the
         `codex-user` option (the user must already exist). Note the caller is
         responsible for ensuring the specified user has the privileges it needs
@@ -205,7 +215,10 @@ runs:
     # This is its own step to minimize the runtime logic that has access to the
     # API key. Note we use `env -u PROXY_API_KEY` to ensure extra copies of the
     # key do not end up in the memory of the `codex-responses-api-proxy`
-    # process where environment variables are stored.
+    # process where environment variables are stored. The background shell must
+    # replace itself so it does not retain the key for the proxy's lifetime.
+    # Replace inherited Node options so the proxy's JavaScript launcher and
+    # descendants disable SIGUSR1.
     - name: Start Responses API proxy
       if: ${{ inputs['openai-api-key'] != '' && steps.start_proxy.outputs.server_info_file_exists == 'false' }}
       env:
@@ -225,7 +238,7 @@ runs:
         fi
 
         (
-          printenv PROXY_API_KEY | env -u PROXY_API_KEY "${args[@]}"
+          exec env -u PROXY_API_KEY -u NODE_OPTIONS NODE_OPTIONS=--disable-sigusr1 "${args[@]}" <<< "$PROXY_API_KEY"
         ) &
 
     - name: Wait for Responses API proxy
@@ -280,11 +293,12 @@ runs:
       run: |
         set -euo pipefail
 
-        # Bubblewrap needs unprivileged user namespaces on GitHub-hosted Linux
-        # runners. This step runs before drop-sudo, then becomes a no-op on
-        # later codex-action invocations in the same job because the sysctls
-        # already have the desired values. See issue #75 for the failure mode
-        # this is working around on newer Ubuntu images.
+        # Linux drop-sudo sets no_new_privs before Codex starts, so bubblewrap
+        # must use unprivileged user namespaces instead of setuid elevation.
+        # This step runs before drop-sudo, then becomes a no-op on later
+        # codex-action invocations in the same job because the sysctls already
+        # have the desired values. See issue #75 for the failure mode this is
+        # working around on newer Ubuntu images.
         current_userns="$(sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || true)"
         if [ -n "$current_userns" ] && [ "$current_userns" != "1" ]; then
           echo "Enabling kernel.unprivileged_userns_clone for bubblewrap."
@@ -301,7 +315,7 @@ runs:
         fi
 
     - name: Drop sudo privilege, if appropriate
-      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' }}
+      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && (inputs['openai-api-key'] != '' || inputs.prompt != '' || inputs['prompt-file'] != '') && (runner.os != 'Linux' || (inputs.prompt == '' && inputs['prompt-file'] == '')) }}
       shell: bash
       env:
         ACTION_PATH: ${{ github.action_path }}
@@ -320,7 +334,7 @@ runs:
         esac
 
     - name: Verify sudo privilege removed
-      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && inputs['openai-api-key'] != '' }}
+      if: ${{ inputs['safety-strategy'] == 'drop-sudo' && (inputs['openai-api-key'] != '' || inputs.prompt != '' || inputs['prompt-file'] != '') && (runner.os != 'Linux' || (inputs.prompt == '' && inputs['prompt-file'] == '')) }}
       shell: bash
       run: |
         if sudo -n true 2>/dev/null; then
@@ -351,7 +365,7 @@ runs:
         FORCE_COLOR: 1
       shell: bash
       run: |
-        node "$ACTION_PATH/dist/main.js" run-codex-exec \
+        exec env -u NODE_OPTIONS NODE_OPTIONS=--disable-sigusr1 node --disable-sigusr1 "$ACTION_PATH/dist/main.js" run-codex-exec \
             --prompt "${CODEX_PROMPT}" \
             --prompt-file "${CODEX_PROMPT_FILE}" \
             --output-file "$CODEX_OUTPUT_FILE" \

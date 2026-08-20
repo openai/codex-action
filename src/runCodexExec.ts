@@ -4,6 +4,77 @@ import path from "path";
 import os from "os";
 import { setOutput } from "@actions/core";
 import { checkOutput } from "./checkOutput";
+import { captureLinuxRunnerCredentials } from "./linuxCredentials";
+
+const LINUX_DROP_SUDO_SCRIPT = String.raw`
+node="$1"
+action="$2"
+user="$3"
+uid="$4"
+home="$5"
+runner_path="$6"
+node_options="$7"
+runner_credentials="$8"
+shift 8
+
+if [ ! -x /usr/bin/setpriv ]; then
+  echo "Linux drop-sudo requires /usr/bin/setpriv." >&2
+  exit 1
+fi
+
+nobody_gid="$(/usr/bin/id -g nobody 2>/dev/null)" || {
+  echo "Linux drop-sudo requires an unprivileged nobody account." >&2
+  exit 1
+}
+case "$nobody_gid" in
+  ''|*[!0-9]*|0)
+    echo "Linux drop-sudo could not resolve a safe nobody primary group." >&2
+    exit 1
+    ;;
+esac
+group_entry="$(/usr/bin/getent group "$nobody_gid" 2>/dev/null)" || {
+  echo "Linux drop-sudo could not resolve the nobody primary group." >&2
+  exit 1
+}
+case "$group_entry" in
+  nobody:*|nogroup:*) ;;
+  *)
+    echo "Linux drop-sudo refuses an unexpected nobody primary group." >&2
+    exit 1
+    ;;
+esac
+
+/usr/bin/env -u NODE_OPTIONS "$node" "$action" drop-sudo --root-phase --user "$user" --group sudo --runner-credentials "$runner_credentials" || exit $?
+unsafe_nobody_socket="$(/usr/bin/find /run -type s -uid 0 -gid "$nobody_gid" -perm -020 -print -quit)" || {
+  echo "Linux drop-sudo could not verify the nobody primary group." >&2
+  exit 1
+}
+if [ -n "$unsafe_nobody_socket" ]; then
+  echo "Linux drop-sudo refuses an unsafe nobody primary group." >&2
+  exit 1
+fi
+if /usr/bin/sudo -n -u "$user" -- /usr/bin/sudo -n true 2>/dev/null; then
+  echo "Expected sudo to be disabled, but sudo succeeded." >&2
+  exit 1
+fi
+echo "Confirmed the standard sudo probe is disabled."
+
+set -- /usr/bin/setpriv \
+  --reuid="$uid" \
+  --regid="$nobody_gid" \
+  --clear-groups \
+  --no-new-privs \
+  --bounding-set=-all \
+  --inh-caps=-all \
+  --ambient-caps=-all \
+  -- /usr/bin/env \
+  -u SUDO_COMMAND -u SUDO_USER -u SUDO_UID -u SUDO_GID \
+  "HOME=$home" "USER=$user" "LOGNAME=$user" "PATH=$runner_path" \
+  "NODE_OPTIONS=$node_options" \
+  "$@"
+echo "Launching Codex with no_new_privs and empty capability sets."
+exec "$@"
+`;
 
 export type PromptSource =
   | {
@@ -109,8 +180,56 @@ export async function runCodexExec({
 
   const command: Array<string> = [];
 
+  const isLinuxDropSudo =
+    safetyStrategy === "drop-sudo" && process.platform === "linux";
   let pathToCodex = "codex";
-  if (safetyStrategy === "unprivileged-user") {
+  if (isLinuxDropSudo) {
+    const uid = process.getuid?.();
+    if (uid == null || uid === 0) {
+      throw new Error("Linux drop-sudo requires a non-root runner user.");
+    }
+    const runnerCredentials = captureLinuxRunnerCredentials();
+
+    try {
+      await checkOutput(["/usr/bin/sudo", "-n", "true"]);
+    } catch {
+      throw new Error(
+        "Linux drop-sudo requires passwordless sudo before Codex starts. It cannot run again after sudo has been removed; use a separate job."
+      );
+    }
+
+    pathToCodex = (await checkOutput(["which", "codex"])).trim();
+    if (!pathToCodex) {
+      throw new Error("could not find 'codex' in PATH");
+    }
+
+    const user = os.userInfo();
+    command.push(
+      "/usr/bin/sudo",
+      "-n",
+      "-E",
+      "--",
+      "/usr/bin/env",
+      "-u",
+      "ENV",
+      "-u",
+      "BASH_ENV",
+      "-u",
+      "SHELLOPTS",
+      "/bin/sh",
+      "-c",
+      LINUX_DROP_SUDO_SCRIPT,
+      "codex-action-drop-sudo",
+      process.execPath,
+      process.argv[1],
+      user.username,
+      String(uid),
+      process.env.HOME ?? user.homedir,
+      process.env.PATH ?? "",
+      process.env.NODE_OPTIONS ?? "",
+      JSON.stringify(runnerCredentials)
+    );
+  } else if (safetyStrategy === "unprivileged-user") {
     if (codexUser == null) {
       throw new Error(
         "codexUser must be specified when using the 'unprivileged-user' safety strategy."
@@ -371,10 +490,43 @@ function determinePermissionSelection({
       "`permission-profile` cannot be combined with the `read-only` safety strategy because that strategy forces the legacy read-only sandbox."
     );
   }
+  const effectiveSandboxReadOnly =
+    safetyStrategy === "read-only" || requestedSandbox === "read-only";
+  if (
+    (permissionProfile != null || effectiveSandboxReadOnly) &&
+    extraArgs.some(
+      (arg) =>
+        arg === "--dangerously-bypass-approvals-and-sandbox" ||
+        arg === "--yolo" ||
+        arg === "--full-auto"
+    )
+  ) {
+    throw new Error(
+      "`codex-args` cannot bypass sandbox protections when a `permission-profile` or read-only sandbox is selected."
+    );
+  }
   if (permissionProfile != null && extraArgsSelectSandbox(extraArgs)) {
     throw new Error(
       "`permission-profile` cannot be combined with a sandbox override in `codex-args`."
     );
+  }
+  const customPermissionProfile =
+    permissionProfile != null && !permissionProfile.startsWith(":");
+  if (
+    customPermissionProfile &&
+    extraArgs.some(
+      (arg) =>
+        arg === "--image" ||
+        arg.startsWith("--image=") ||
+        (arg.startsWith("-i") && !arg.startsWith("--"))
+    )
+  ) {
+    throw new Error(
+      "`codex-args` cannot attach local images with a custom permission profile because image loading does not enforce its filesystem restrictions."
+    );
+  }
+  if (safetyStrategy !== "unsafe" || permissionProfile != null) {
+    validateProtectedExtraArgs(extraArgs, customPermissionProfile);
   }
   if (safetyStrategy === "read-only") {
     return { type: "sandbox", mode: "read-only" };
@@ -385,13 +537,137 @@ function determinePermissionSelection({
   return { type: "sandbox", mode: requestedSandbox ?? "workspace-write" };
 }
 
+const RESTRICTED_CONFIG_ROOTS = new Set([
+  "agents",
+  "approval_policy",
+  "approvals_reviewer",
+  "apps_mcp_product_sku",
+  "auto_review",
+  "chatgpt_base_url",
+  "debug",
+  "default_permissions",
+  "experimental_realtime_webrtc_call_base_url",
+  "experimental_realtime_ws_base_url",
+  "hooks",
+  "marketplaces",
+  "mcp_servers",
+  "model_provider",
+  "model_providers",
+  "notify",
+  "openai_base_url",
+  "oss_provider",
+  "otel",
+  "permissions",
+  "plugins",
+  "profile",
+  "profiles",
+  "projects",
+  "sandbox_mode",
+  "sandbox_workspace_write",
+  "shell_environment_policy",
+  "use_legacy_landlock",
+]);
+
+const CUSTOM_PROFILE_RESTRICTED_CONFIG_ROOTS = new Set([
+  "experimental_compact_prompt_file",
+  "model_catalog_json",
+  "model_instructions_file",
+]);
+
+function validateProtectedExtraArgs(
+  args: Array<string>,
+  customPermissionProfile: boolean
+): void {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (
+      arg === "--dangerously-bypass-hook-trust" ||
+      arg.startsWith("--dangerously-bypass-hook-trust=") ||
+      arg === "--approve-for-me" ||
+      arg.startsWith("--approve-for-me=") ||
+      arg === "--not-so-yolo" ||
+      arg.startsWith("--not-so-yolo=") ||
+      arg === "--add-dir" ||
+      arg.startsWith("--add-dir=") ||
+      arg === "--oss" ||
+      arg.startsWith("--oss=") ||
+      arg === "--local-provider" ||
+      arg.startsWith("--local-provider=") ||
+      arg === "--ignore-user-config" ||
+      arg.startsWith("--ignore-user-config=") ||
+      arg === "--ignore-rules" ||
+      arg.startsWith("--ignore-rules=") ||
+      arg === "--profile" ||
+      arg.startsWith("--profile=") ||
+      (arg.startsWith("-p") && !arg.startsWith("--"))
+    ) {
+      throw new Error(
+        `\`codex-args\` cannot use ${arg} with a protected safety strategy or permission profile.`
+      );
+    }
+
+    if (arg === "--enable" || arg.startsWith("--enable=")) {
+      const feature =
+        arg === "--enable" ? args[++index] : arg.slice("--enable=".length);
+      if (feature !== "use_legacy_landlock") {
+        throw new Error(
+          "`codex-args` can only enable `use_legacy_landlock` with a protected safety strategy or permission profile."
+        );
+      }
+      continue;
+    }
+    if (arg === "--disable" || arg.startsWith("--disable=")) {
+      throw new Error(
+        "`codex-args` cannot disable Codex features with a protected safety strategy or permission profile."
+      );
+    }
+
+    let override: string | undefined;
+    if (arg === "--config" || arg === "-c") {
+      override = args[++index];
+    } else if (arg.startsWith("--config=")) {
+      override = arg.slice("--config=".length);
+    } else if (arg.startsWith("-c") && !arg.startsWith("--")) {
+      override = arg.slice("-c".length);
+      if (override.startsWith("=")) {
+        override = override.slice(1);
+      }
+    } else {
+      continue;
+    }
+
+    const equalsIndex = override?.indexOf("=") ?? -1;
+    const key = override?.slice(0, equalsIndex).trim();
+    if (
+      equalsIndex < 1 ||
+      key === undefined ||
+      !/^[A-Za-z_][A-Za-z0-9_-]*(?:\.[A-Za-z_][A-Za-z0-9_-]*)*$/.test(key)
+    ) {
+      throw new Error(
+        "`codex-args` contains an invalid or ambiguous configuration override for a protected safety strategy or permission profile."
+      );
+    }
+
+    const root = key.split(".", 1)[0];
+    if (
+      RESTRICTED_CONFIG_ROOTS.has(root) ||
+      (customPermissionProfile &&
+        CUSTOM_PROFILE_RESTRICTED_CONFIG_ROOTS.has(root)) ||
+      (root === "features" && key !== "features.use_legacy_landlock")
+    ) {
+      throw new Error(
+        `\`codex-args\` cannot override \`${key}\` with a protected safety strategy or permission profile.`
+      );
+    }
+  }
+}
+
 function extraArgsSelectSandbox(args: Array<string>): boolean {
   return args.some((arg, index) => {
     if (
       arg === "--sandbox" ||
       arg.startsWith("--sandbox=") ||
-      arg === "-s" ||
-      arg.startsWith("-s=")
+      (arg.startsWith("-s") && !arg.startsWith("--"))
     ) {
       return true;
     }
@@ -401,14 +677,17 @@ function extraArgsSelectSandbox(args: Array<string>): boolean {
     if (arg.startsWith("--config=")) {
       return configOverrideSelectsSandbox(arg.slice("--config=".length));
     }
-    if (arg.startsWith("-c=")) {
-      return configOverrideSelectsSandbox(arg.slice("-c=".length));
+    if (arg.startsWith("-c") && !arg.startsWith("--")) {
+      const override = arg.slice("-c".length);
+      return configOverrideSelectsSandbox(
+        override.startsWith("=") ? override.slice(1) : override
+      );
     }
     return false;
   });
 }
 
 function configOverrideSelectsSandbox(override: string | undefined): boolean {
-  const key = override?.trimStart().split(/[=.]/, 1)[0];
+  const key = override?.trimStart().split(/[=.]/, 1)[0].trim();
   return key === "sandbox_mode" || key === "sandbox_workspace_write";
 }

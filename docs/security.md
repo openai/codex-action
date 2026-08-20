@@ -32,9 +32,18 @@ Permission profiles constrain commands that Codex runs; they do not replace the 
 or network access.
 
 Permission profiles and the legacy `sandbox` input do not compose. The action rejects both inputs
-together, but a `sandbox_mode` setting in `codex-args` or a loaded `config.toml` also opts Codex into
-the legacy sandbox model. Review every loaded configuration layer when a workflow is expected to use
-a permission profile.
+together and rejects `codex-args` that would weaken protected permission, trust, provider, or
+command-execution settings. Alternate configuration profiles, additional writable directories, and
+conflicting hook or sandbox bypasses are also rejected; existing benign flags, configuration
+overrides, and `--enable use_legacy_landlock` remain available. `--full-auto` conflicts with a
+permission profile or an effective read-only sandbox. Image attachments and overrides loading local
+instruction, compaction, or catalog files are rejected only for custom named permission profiles
+because their unsandboxed reads can bypass scoped filesystem access. Explicitly unsafe, unrestricted
+runs retain argument pass-through.
+
+The existing `codex-home/config.toml` and named permission profiles remain trusted inputs and are not
+sanitized by this validation. Do not point `codex-home` at configuration controlled by an untrusted
+checkout; review every loaded configuration layer when a workflow relies on restricted permissions.
 
 ## Avoid shell injection in workflow steps
 

@@ -1,5 +1,12 @@
 # codex-action Changelog
 
+## [v1.12](https://github.com/openai/codex-action/tree/v1.12) (2026-08-20)
+
+- Strengthen Linux runner privilege isolation and Responses API proxy credential handling.
+- Reject Codex arguments and configuration overrides that conflict with protected execution settings.
+- Require unprivileged user namespaces for Linux `drop-sudo`; run the action after steps that need `sudo`, Docker, or privileged service sockets.
+- Document runner requirements, permission-profile behavior, and trusted configuration boundaries.
+
 ## [v1.11](https://github.com/openai/codex-action/tree/v1.11) (2026-07-04)
 
 - [#116](https://github.com/openai/codex-action/pull/116) keep the permission profile helper backward compatible

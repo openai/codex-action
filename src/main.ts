@@ -106,12 +106,19 @@ export async function main() {
       )
     )
     .addOption(new Option("--root-phase", "internal").default(false).hideHelp())
+    .addOption(new Option("--runner-credentials <json>", "internal").hideHelp())
     .action(
-      async (options: { user: string; group: string; rootPhase: boolean }) => {
+      async (options: {
+        user: string;
+        group: string;
+        rootPhase: boolean;
+        runnerCredentials?: string;
+      }) => {
         await dropSudo({
           user: options.user,
           group: options.group,
           rootPhase: options.rootPhase,
+          runnerCredentials: options.runnerCredentials,
         });
       }
     );
@@ -329,7 +336,14 @@ function parseExtraArgs(value: string): Array<string> {
   }
 
   if (value.startsWith("[")) {
-    return JSON.parse(value);
+    const parsed: unknown = JSON.parse(value);
+    if (
+      !Array.isArray(parsed) ||
+      !parsed.every((argument) => typeof argument === "string")
+    ) {
+      throw new Error("`codex-args` must be a JSON array of strings.");
+    }
+    return parsed;
   } else {
     return parseArgsStringToArgv(value);
   }
