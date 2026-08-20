@@ -441,6 +441,8 @@ writeFileSync(output, "fake final message\\n");
           "drop-sudo",
           "--codex-user",
           "",
+          "--project-instructions-mode",
+          "workspace",
         ];
         const launchCommand = scenario.staleGroups
           ? [
