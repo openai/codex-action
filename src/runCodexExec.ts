@@ -27,6 +27,10 @@ export type SandboxMode =
   | "workspace-write"
   | "danger-full-access";
 
+type PermissionSelection =
+  | { type: "sandbox"; mode: SandboxMode }
+  | { type: "profile"; name: string };
+
 export type OutputSchemaSource =
   | {
       type: "file";
@@ -37,6 +41,15 @@ export type OutputSchemaSource =
       content: string;
     };
 
+/**
+ * Builds and runs a `codex exec` command, writes the prompt to its standard input, and publishes
+ * the command's final message as the action output.
+ *
+ * Authentication is intentionally outside this function. The composite action starts or reuses
+ * the Responses API proxy and writes the corresponding Codex configuration before invoking this
+ * command. Keeping that setup separate also lets tests put a fake `codex` executable on `PATH` to
+ * verify command construction and output handling without an API key or network request.
+ */
 export async function runCodexExec({
   prompt,
   codexHome,
@@ -50,6 +63,7 @@ export async function runCodexExec({
   codexUser,
   sandbox,
   projectInstructionsMode,
+  permissionProfile,
 }: {
   prompt: PromptSource;
   codexHome: string | null;
@@ -61,8 +75,9 @@ export async function runCodexExec({
   effort: string | null;
   safetyStrategy: SafetyStrategy;
   codexUser: string | null;
-  sandbox: SandboxMode;
+  sandbox: SandboxMode | null;
   projectInstructionsMode: ProjectInstructionsMode;
+  permissionProfile: string | null;
 }): Promise<void> {
   let input: string;
   switch (prompt.type) {
@@ -88,9 +103,11 @@ export async function runCodexExec({
     outputSchema,
     runAsUser
   );
-  const sandboxMode = await determineSandboxMode({
+  const permissionSelection = determinePermissionSelection({
     safetyStrategy,
     requestedSandbox: sandbox,
+    permissionProfile,
+    extraArgs,
   });
 
   const command: Array<string> = [];
@@ -151,7 +168,17 @@ export async function runCodexExec({
     command.push("--config", "project_doc_max_bytes=0");
   }
 
-  command.push("--sandbox", sandboxMode);
+  switch (permissionSelection.type) {
+    case "sandbox":
+      command.push("--sandbox", permissionSelection.mode);
+      break;
+    case "profile":
+      command.push(
+        "--config",
+        `default_permissions=${JSON.stringify(permissionSelection.name)}`
+      );
+      break;
+  }
 
   const env = { ...process.env };
   if (!env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE) {
@@ -331,16 +358,65 @@ async function createTempDir(
   }
 }
 
-async function determineSandboxMode({
+function determinePermissionSelection({
   safetyStrategy,
   requestedSandbox,
+  permissionProfile,
+  extraArgs,
 }: {
   safetyStrategy: SafetyStrategy;
-  requestedSandbox: SandboxMode;
-}): Promise<SandboxMode> {
-  if (safetyStrategy === "read-only") {
-    return "read-only";
-  } else {
-    return requestedSandbox;
+  requestedSandbox: SandboxMode | null;
+  permissionProfile: string | null;
+  extraArgs: Array<string>;
+}): PermissionSelection {
+  if (permissionProfile != null && requestedSandbox != null) {
+    throw new Error(
+      "`permission-profile` and `sandbox` are mutually exclusive. Permission profiles do not compose with legacy sandbox settings."
+    );
   }
+  if (permissionProfile != null && safetyStrategy === "read-only") {
+    throw new Error(
+      "`permission-profile` cannot be combined with the `read-only` safety strategy because that strategy forces the legacy read-only sandbox."
+    );
+  }
+  if (permissionProfile != null && extraArgsSelectSandbox(extraArgs)) {
+    throw new Error(
+      "`permission-profile` cannot be combined with a sandbox override in `codex-args`."
+    );
+  }
+  if (safetyStrategy === "read-only") {
+    return { type: "sandbox", mode: "read-only" };
+  }
+  if (permissionProfile != null) {
+    return { type: "profile", name: permissionProfile };
+  }
+  return { type: "sandbox", mode: requestedSandbox ?? "workspace-write" };
+}
+
+function extraArgsSelectSandbox(args: Array<string>): boolean {
+  return args.some((arg, index) => {
+    if (
+      arg === "--sandbox" ||
+      arg.startsWith("--sandbox=") ||
+      arg === "-s" ||
+      arg.startsWith("-s=")
+    ) {
+      return true;
+    }
+    if (arg === "--config" || arg === "-c") {
+      return configOverrideSelectsSandbox(args[index + 1]);
+    }
+    if (arg.startsWith("--config=")) {
+      return configOverrideSelectsSandbox(arg.slice("--config=".length));
+    }
+    if (arg.startsWith("-c=")) {
+      return configOverrideSelectsSandbox(arg.slice("-c=".length));
+    }
+    return false;
+  });
+}
+
+function configOverrideSelectsSandbox(override: string | undefined): boolean {
+  const key = override?.trimStart().split(/[=.]/, 1)[0];
+  return key === "sandbox_mode" || key === "sandbox_workspace_write";
 }

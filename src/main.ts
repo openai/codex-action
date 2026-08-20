@@ -186,7 +186,12 @@ export async function main() {
     )
     .requiredOption(
       "--sandbox <SANDBOX>",
-      "Sandbox mode override to pass to `codex exec`."
+      "Legacy sandbox mode override to pass to `codex exec` (may be empty)."
+    )
+    .option(
+      "--permission-profile <PROFILE>",
+      "Permission profile to select through `default_permissions` (may be empty).",
+      ""
     )
     .requiredOption("--model <model>", "Model the agent should use")
     .requiredOption("--effort <effort>", "Reasoning effort the agent should use")
@@ -213,6 +218,7 @@ export async function main() {
         outputSchemaFile: string;
         outputSchema: string;
         sandbox: string;
+        permissionProfile: string;
         model: string;
         effort: string;
         safetyStrategy: string;
@@ -229,6 +235,7 @@ export async function main() {
           outputSchema,
           outputSchemaFile,
           sandbox,
+          permissionProfile,
           model,
           effort,
           safetyStrategy,
@@ -289,7 +296,8 @@ export async function main() {
           extraArgs,
           explicitOutputFile: emptyAsNull(outputFile),
           outputSchema: outputSchemaSource,
-          sandbox: toSandboxMode(sandbox),
+          sandbox: toOptionalSandboxMode(sandbox),
+          permissionProfile: emptyAsNull(permissionProfile),
           model: emptyAsNull(model),
           effort: emptyAsNull(effort),
           safetyStrategy: toSafetyStrategy(safetyStrategy),
@@ -388,15 +396,18 @@ function toSafetyStrategy(value: string): SafetyStrategy {
   }
 }
 
-function toSandboxMode(value: string): SandboxMode {
-  switch (value) {
+function toOptionalSandboxMode(value: string): SandboxMode | null {
+  const normalized = emptyAsNull(value);
+  switch (normalized) {
+    case null:
+      return null;
     case "read-only":
     case "workspace-write":
     case "danger-full-access":
-      return value;
+      return normalized;
     default:
       throw new Error(
-        `Invalid sandbox: ${value}. Must be one of 'read-only', 'workspace-write', or 'danger-full-access'.`
+        `Invalid sandbox: ${normalized}. Must be one of 'read-only', 'workspace-write', or 'danger-full-access'.`
       );
   }
 }
