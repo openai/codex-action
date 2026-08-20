@@ -90,6 +90,8 @@ writeFileSync(args[outputIndex + 1], "fake final message\\n");
       safetyStrategy,
       "--codex-user",
       "",
+      "--project-instructions-mode",
+      "workspace",
     ],
     {
       encoding: "utf8",

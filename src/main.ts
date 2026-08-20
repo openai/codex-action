@@ -17,6 +17,10 @@ import { ensureActorHasWriteAccess } from "./checkActorPermissions";
 import parseArgsStringToArgv from "string-argv";
 import { writeProxyConfig } from "./writeProxyConfig";
 import { checkOutput } from "./checkOutput";
+import {
+  prepareProjectInstructions,
+  ProjectInstructionsMode,
+} from "./projectInstructions";
 
 export async function main() {
   const program = new Command();
@@ -97,6 +101,40 @@ export async function main() {
     );
 
   program
+    .command("prepare-project-instructions")
+    .description(
+      "Prepare Codex project instructions according to the selected trust mode."
+    )
+    .requiredOption("--codex-home <DIRECTORY>", "Path to Codex home directory")
+    .requiredOption("--cd <DIRECTORY>", "Working directory for Codex")
+    .requiredOption("--workspace <DIRECTORY>", "GitHub workspace directory")
+    .requiredOption(
+      "--mode <MODE>",
+      "Project instruction mode. One of 'default-branch' or 'workspace'."
+    )
+    .requiredOption(
+      "--safety-strategy <strategy>",
+      "Safety strategy to use. One of 'drop-sudo', 'read-only', 'unprivileged-user', or 'unsafe'."
+    )
+    .action(
+      async (options: {
+        codexHome: string;
+        cd: string;
+        workspace: string;
+        mode: string;
+        safetyStrategy: string;
+      }) => {
+        await prepareProjectInstructions({
+          codexHome: options.codexHome,
+          cd: options.cd,
+          workspace: options.workspace,
+          mode: toProjectInstructionsMode(options.mode),
+          safetyStrategy: toSafetyStrategy(options.safetyStrategy),
+        });
+      }
+    );
+
+  program
     .command("drop-sudo")
     .description("Drops sudo privileges for the configured user.")
     .addOption(new Option("--user <user>", "User to modify").default("runner"))
@@ -172,6 +210,10 @@ export async function main() {
       "--codex-user <user>",
       "User to run codex exec as when using the 'unprivileged-user' safety strategy."
     )
+    .requiredOption(
+      "--project-instructions-mode <MODE>",
+      "Project instruction mode. One of 'default-branch' or 'workspace'."
+    )
     .action(
       async (options: {
         prompt: string;
@@ -188,6 +230,7 @@ export async function main() {
         effort: string;
         safetyStrategy: string;
         codexUser: string;
+        projectInstructionsMode: string;
       }) => {
         const {
           prompt,
@@ -204,6 +247,7 @@ export async function main() {
           effort,
           safetyStrategy,
           codexUser,
+          projectInstructionsMode,
         } = options;
 
         const normalizedPrompt = emptyAsNull(prompt);
@@ -265,6 +309,9 @@ export async function main() {
           effort: emptyAsNull(effort),
           safetyStrategy: toSafetyStrategy(safetyStrategy),
           codexUser: emptyAsNull(codexUser),
+          projectInstructionsMode: toProjectInstructionsMode(
+            projectInstructionsMode
+          ),
         });
       }
     );
@@ -375,6 +422,18 @@ function toOptionalSandboxMode(value: string): SandboxMode | null {
     default:
       throw new Error(
         `Invalid sandbox: ${normalized}. Must be one of 'read-only', 'workspace-write', or 'danger-full-access'.`
+      );
+  }
+}
+
+function toProjectInstructionsMode(value: string): ProjectInstructionsMode {
+  switch (value) {
+    case "default-branch":
+    case "workspace":
+      return value;
+    default:
+      throw new Error(
+        `Invalid project instruction mode: ${value}. Must be one of 'default-branch' or 'workspace'.`
       );
   }
 }
