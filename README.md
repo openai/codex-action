@@ -141,8 +141,17 @@ configured unprivileged user when selecting a profile.
 
 For backward compatibility, omitting both `permission-profile` and `sandbox` still runs Codex with
 the legacy `workspace-write` sandbox. Existing callers that set `sandbox` continue to use the legacy
-model. Do not set `sandbox_mode` in `codex-args` or a loaded `config.toml` when selecting a permission
-profile; Codex treats any legacy sandbox setting as opting out of permission profiles.
+model. Existing `codex-args` such as `--search`, `--ephemeral`, `--model`, benign `-c` overrides
+(including `model_reasoning_effort` and `service_tier`), and `--enable use_legacy_landlock` remain
+supported. Protected runs reject overrides that change permissions, trust, model providers, or
+command execution; alternate configuration profiles; additional writable directories; and conflicting
+hook or sandbox bypasses. `--full-auto` cannot be combined with a permission profile or an effective
+read-only sandbox. Image attachments and overrides loading local instruction, compaction, or catalog
+files remain supported except with custom named permission profiles, where unsandboxed reads could
+bypass scoped filesystem access. Explicitly unsafe, unrestricted runs retain argument pass-through.
+
+Treat `codex-home/config.toml` and named profile definitions as trusted workflow configuration.
+They are not sanitized by `codex-args` validation and must not come from an untrusted checkout.
 
 For example, use the built-in `:workspace` profile for a workflow that needs to modify the checkout:
 
@@ -161,7 +170,7 @@ The `safety-strategy` input determines how much access Codex receives on the run
 
 See [Protecting your `OPENAI_API_KEY`](./docs/security.md#protecting-your-openai_api_key) on the Security page for important details on this topic.
 
-- **`drop-sudo` (default)** — On Linux and macOS runners, the action revokes the default user’s `sudo` membership before invoking Codex. Codex then runs as that user without superuser privileges. This change lasts for the rest of the job, so subsequent steps cannot rely on `sudo`. This is usually the safest choice on GitHub-hosted runners.
+- **`drop-sudo` (default)** — On Linux and macOS runners, the action revokes the default user’s `sudo` access before invoking Codex. On Linux, it also removes access to existing root-owned service sockets under `/run` that the runner can write, including the Docker daemon. Codex starts with `no_new_privs`, no supplementary groups, and empty bounding, permitted, effective, inheritable, and ambient capability sets in the host user namespace. Descendants inherit `no_new_privs`; they can gain capabilities inside a new user namespace, but those do not grant host privileges. The account and socket mutations can outlive a job on reused self-hosted runners; use this strategy on disposable runners and run the action as the last step in a job.
 - **`unprivileged-user`** — Runs Codex as the user provided via `codex-user`. Use this if you manage your own runner with a pre-created unprivileged account. Ensure the user can read the repository checkout and any files Codex needs. See [`unprivileged-user.yml`](./examples/unprivileged-user.yml) for an example of how to configure such an account on `ubuntu-latest`.
 - **`read-only`** — Executes Codex in a read-only sandbox. Codex can view files but cannot mutate the filesystem or access the network directly. The OpenAI API key still flows through the proxy, so Codex could read it if it can reach process memory.
 - **`unsafe`** — No privilege reduction. Codex runs as the default `runner` user (which typically has `sudo`). Only use this when you fully trust the prompt. On Windows runners this is the only supported choice and the action will fail if another option is provided.
@@ -176,8 +185,8 @@ See [Protecting your `OPENAI_API_KEY`](./docs/security.md#protecting-your-openai
 ### Operating system support
 
 - **Windows**: GitHub-hosted Windows runners lack a supported sandbox. Set `safety-strategy: unsafe`. The action validates this and exits early otherwise.
-- **Linux/macOS**: All options for `safety-strategy` are supported. Again, if you pick `drop-sudo`, remember that later steps in your `job` that rely on `sudo` will fail. If you do need to run code that requires `sudo` after `openai/codex-action` has run, one option is to pipe the output of `openai/codex-action` to a fresh `job` on a new host and to continue your workflow from there.
-- **GitHub-hosted Linux runners**: The action enables unprivileged user namespaces during setup and clears Ubuntu's AppArmor gate when present. This avoids the `bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted` failure seen on newer hosted images, including workflows that use the action once to bootstrap Codex and then call `codex` in later steps. Self-hosted Linux runners still need equivalent kernel support configured ahead of time.
+- **Linux/macOS**: All options for `safety-strategy` are supported. Linux `drop-sudo` requires passwordless `sudo` and `/usr/bin/setpriv` before Codex starts. Any mode that uses bubblewrap, including the default `workspace-write` sandbox and built-in `:workspace`/`:read-only` profiles, also requires working unprivileged user namespaces; setuid-only bubblewrap installations are unsupported because `no_new_privs` is enforced for every Linux `drop-sudo` Codex launch. Sandbox-backend startup errors occur after the irreversible account and socket cleanup, so validate self-hosted runner configurations on disposable hosts. Running the action again with a prompt after `sudo` has already been removed fails instead of running without these protections. Run subsequent work requiring elevated privileges in a fresh `job` on a new host.
+- **GitHub-hosted Linux runners**: The action enables unprivileged user namespaces during setup and clears Ubuntu's AppArmor gate when present. This avoids the `bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted` failure seen on newer hosted images. Self-hosted Linux runners must enable unprivileged user namespaces, allow a sufficient `user.max_user_namespaces`, and configure AppArmor or SELinux to permit them before using bubblewrap-backed `drop-sudo` modes.
 
 ## Outputs
 
@@ -200,8 +209,8 @@ jobs:
 - Run this action after `actions/checkout@v5` so Codex has access to your repository contents.
 - To use a non-default Responses endpoint (for example Azure OpenAI), set `responses-api-endpoint` to the provider's URL while keeping `openai-api-key` populated; the proxy will still send `Authorization: Bearer <key>` upstream.
 - If you want Codex to have access to a narrow set of privileged functionality, consider running a local MCP server that can perform these actions and configure Codex to use it.
-- If you need more control over the CLI invocation, pass flags through `codex-args` or create a `config.toml` in `codex-home`. Prefer a [permission profile](https://developers.openai.com/codex/permissions), starting with `:workspace` for workspace editing, over legacy sandbox flags for new integrations.
-- Once `openai/codex-action` is run once with `openai-api-key`, you can also call `codex` from subsequent scripts in your job. (You can omit `prompt` and `prompt-file` from the action in this case.)
+- If you need more control over the CLI invocation, pass supported flags through `codex-args` or create a trusted `config.toml` in `codex-home`. Prefer a [permission profile](https://developers.openai.com/codex/permissions), starting with `:workspace` for workspace editing, over legacy sandbox flags for new integrations.
+- Calling `codex` directly from later scripts does not receive the action's `no_new_privs`, capability, or supplementary-group protections. Provide `prompt` or `prompt-file` to run Codex through the action; on Linux, use a new job if `drop-sudo` has already been applied.
 
 ## Azure
 
