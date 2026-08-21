@@ -250,7 +250,7 @@ export async function runCodexExec({
       throw new Error("could not find 'codex' in PATH");
     }
 
-    command.push("sudo", "-u", codexUser, "--");
+    command.push("sudo", "-E", "-u", codexUser, "--");
   }
 
   command.push(
