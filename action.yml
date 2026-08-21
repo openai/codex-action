@@ -203,14 +203,9 @@ runs:
       if: ${{ inputs['openai-api-key'] != '' }}
       shell: bash
       env:
+        ACTION_PATH: ${{ github.action_path }}
         SERVER_INFO_FILE: ${{ steps.derive_server_info.outputs.server_info_file }}
-      run: |
-        if [ -s "$SERVER_INFO_FILE" ]; then
-          echo "Responses API proxy already appears to be running (found $SERVER_INFO_FILE)."
-          echo "server_info_file_exists=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "server_info_file_exists=false" >> "$GITHUB_OUTPUT"
-        fi
+      run: node "$ACTION_PATH/scripts/checkResponsesProxyStatus.mjs" "$SERVER_INFO_FILE"
 
     # This is its own step to minimize the runtime logic that has access to the
     # API key. Note we use `env -u PROXY_API_KEY` to ensure extra copies of the
