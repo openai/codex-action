@@ -180,7 +180,7 @@ runs:
         CODEX_HOME_OVERRIDE: ${{ inputs['codex-home'] }}
         SAFETY_STRATEGY: ${{ inputs['safety-strategy'] }}
         CODEX_USER: ${{ inputs['codex-user'] }}
-        CODEX_RUN_ID: ${{ github.run_id }}
+        CODEX_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
       run: |
         node "$ACTION_PATH/dist/main.js" resolve-codex-home \
           --codex-home-override "$CODEX_HOME_OVERRIDE" \
@@ -193,7 +193,7 @@ runs:
       shell: bash
       env:
         CODEX_HOME: ${{ steps.resolve_home.outputs.codex-home }}
-        CODEX_RUN_ID: ${{ github.run_id }}
+        CODEX_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
       run: |
         server_info_file="$CODEX_HOME/$CODEX_RUN_ID.json"
         echo "server_info_file=$server_info_file" >> "$GITHUB_OUTPUT"
