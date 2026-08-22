@@ -312,14 +312,27 @@ export async function runCodexExec({
     await new Promise((resolve, reject) => {
       const child = spawn(program, command, {
         env,
-        stdio: ["pipe", "inherit", "inherit"],
+        stdio: ["pipe", "pipe", "pipe"],
       });
+      child.stdout.pipe(process.stdout, { end: false });
+      child.stderr.pipe(process.stderr, { end: false });
       child.stdin.write(input);
       child.stdin.end();
 
-      child.on("error", reject);
+      const closeOutputStreams = () => {
+        child.stdout.unpipe(process.stdout);
+        child.stderr.unpipe(process.stderr);
+        child.stdout.destroy();
+        child.stderr.destroy();
+      };
 
-      child.on("close", async (code) => {
+      child.once("error", (err) => {
+        closeOutputStreams();
+        reject(err);
+      });
+
+      child.once("exit", async (code) => {
+        closeOutputStreams();
         if (code !== 0) {
           reject(new Error(`${program} exited with code ${code}`));
           return;
