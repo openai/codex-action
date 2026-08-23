@@ -25,14 +25,18 @@ function runCodexExecWithFakeCodex({
   permissionProfile = "",
   extraArgs = "",
   safetyStrategy = "unsafe",
+  promptFileContents = null,
+  fakeCodexExits = false,
 } = {}) {
   const tempDir = mkdtempSync(path.join(tmpdir(), "codex-action-permissions-"));
   const capturePath = path.join(tempDir, "args.json");
   const outputPath = path.join(tempDir, "output.txt");
+  const promptPath = path.join(tempDir, "prompt.md");
   const fakeCodexPath = path.join(tempDir, "codex.mjs");
   writeFileSync(
     fakeCodexPath,
     `import { writeFileSync } from "node:fs";
+${fakeCodexExits ? "process.exit(7);" : ""}
 const args = process.argv.slice(2);
 writeFileSync(process.env.CODEX_CAPTURE_ARGS, JSON.stringify(args));
 const outputIndex = args.indexOf("--output-last-message");
@@ -43,6 +47,9 @@ writeFileSync(args[outputIndex + 1], "fake final message\\n");
 `,
     "utf8"
   );
+  if (promptFileContents != null) {
+    writeFileSync(promptPath, promptFileContents, "utf8");
+  }
   const posixLauncher = path.join(tempDir, "codex");
   writeFileSync(
     posixLauncher,
@@ -62,9 +69,9 @@ writeFileSync(args[outputIndex + 1], "fake final message\\n");
       mainPath,
       "run-codex-exec",
       "--prompt",
-      "test prompt",
+      promptFileContents == null ? "test prompt" : "",
       "--prompt-file",
-      "",
+      promptFileContents == null ? "" : promptPath,
       "--codex-home",
       "",
       "--cd",
@@ -110,6 +117,17 @@ writeFileSync(args[outputIndex + 1], "fake final message\\n");
   rmSync(tempDir, { recursive: true, force: true });
   return { result, capturedArgs };
 }
+
+test("handles a broken Codex stdin pipe without an uncaught error", () => {
+  const { result } = runCodexExecWithFakeCodex({
+    promptFileContents: "x".repeat(8 * 1024 * 1024),
+    fakeCodexExits: true,
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.doesNotMatch(result.stderr, /Unhandled 'error' event/);
+  assert.match(result.stderr, /write EPIPE|codex exited with code 7/);
+});
 
 test("preserves workspace-write as the default legacy sandbox", () => {
   const { result, capturedArgs } = runCodexExecWithFakeCodex();
