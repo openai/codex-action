@@ -19,7 +19,7 @@ const { parseLinuxRunnerCredentials, includeAccountGroups } = await import(
 const original = { userId: 1001, primaryGroupId: 999, supplementaryGroupIds: [27, 998] };
 const require = createRequire(import.meta.url);
 
-function loadLauncher(file, spawn) {
+function loadLauncher(file, spawn, platform = "linux") {
   const { outputFiles } = buildSync({
     entryPoints: [fileURLToPath(new URL(`../src/${file}.ts`, import.meta.url))],
     bundle: true, format: "cjs", platform: "node", write: false,
@@ -35,7 +35,7 @@ function loadLauncher(file, spawn) {
       if (name === "os") return { userInfo: () => ({ username: "runner", homedir: "/synthetic" }) };
       return require(name);
     },
-    process: { platform: "linux", getuid: () => original.userId,
+    process: { platform, getuid: () => original.userId,
       getgid: () => original.primaryGroupId, getgroups: () => original.supplementaryGroupIds,
       execPath: "/synthetic/node", argv: ["node", "/synthetic/main.js"], execArgv: [], env: {} },
     console: { log() {} },
@@ -75,6 +75,32 @@ test("both Linux launch paths pass the original process credentials", async () =
   });
   await assert.rejects(drop.dropSudo({ user: "runner", group: "sudo", rootPhase: false }), (error) => error === stopped);
   assert.deepEqual(JSON.parse(captured.args[captured.args.indexOf("--runner-credentials") + 1]), original);
+});
+
+test("drop-sudo rejects a signal-terminated privileged helper", async () => {
+  const drop = loadLauncher(
+    "dropSudo",
+    (_program, args) => {
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.stdout.setEncoding = child.stderr.setEncoding = () => {};
+      process.nextTick(() =>
+        child.emit(
+          "close",
+          args.includes("--root-phase") ? null : 0,
+          args.includes("--root-phase") ? "SIGTERM" : null
+        )
+      );
+      return child;
+    },
+    "darwin"
+  );
+
+  await assert.rejects(
+    drop.dropSudo({ user: "runner", group: "admin", rootPhase: false }),
+    /SIGTERM/
+  );
 });
 
 test("captures the live credentials without serializing them", () => {

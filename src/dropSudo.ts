@@ -15,7 +15,7 @@ interface ExecOptions {
 }
 
 interface ExecResult {
-  code: number;
+  code: number | null;
   stdout: string;
   stderr: string;
 }
@@ -717,25 +717,30 @@ async function execCommand(
       reject(error);
     });
 
-    child.on("close", (code) => {
-      const exitCode = code ?? 0;
-      if (exitCode !== 0 && !options.ignoreFailure) {
+    child.on("close", (code, signal) => {
+      if (code !== 0 && !options.ignoreFailure) {
+        const outcome =
+          code === null
+            ? `signal ${signal ?? "unknown"}`
+            : `exit code ${code}`;
         const error = new Error(
-          `Command failed: ${command} ${args.join(" ")} (exit code ${exitCode})`
+          `Command failed: ${command} ${args.join(" ")} (${outcome})`
         );
-        (error as ExecError).code = exitCode;
+        (error as ExecError).code = code;
+        (error as ExecError).signal = signal;
         (error as ExecError).stdout = stdout;
         (error as ExecError).stderr = stderr;
         reject(error);
         return;
       }
-      resolve({ code: exitCode, stdout, stderr });
+      resolve({ code, stdout, stderr });
     });
   });
 }
 
 interface ExecError extends Error {
-  code: number;
+  code: number | null;
+  signal: NodeJS.Signals | null;
   stdout: string;
   stderr: string;
 }
