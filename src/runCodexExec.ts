@@ -314,6 +314,7 @@ export async function runCodexExec({
         env,
         stdio: ["pipe", "inherit", "inherit"],
       });
+      child.stdin.on("error", reject);
       child.stdin.write(input);
       child.stdin.end();
 
