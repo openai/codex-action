@@ -366,8 +366,9 @@ runs:
       shell: bash
       run: |
         exec env -u NODE_OPTIONS NODE_OPTIONS=--disable-sigusr1 node --disable-sigusr1 "$ACTION_PATH/dist/main.js" run-codex-exec \
-            --prompt "${CODEX_PROMPT}" \
+            --prompt "" \
             --prompt-file "${CODEX_PROMPT_FILE}" \
+            --prompt-environment-variable "${CODEX_PROMPT:+CODEX_PROMPT}" \
             --output-file "$CODEX_OUTPUT_FILE" \
             --codex-home "$CODEX_HOME" \
             --cd "$CODEX_WORKING_DIRECTORY" \

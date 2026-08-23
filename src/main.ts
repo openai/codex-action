@@ -131,6 +131,11 @@ export async function main() {
       "--prompt-file <FILE>",
       "File containing the prompt to pass to `codex exec`."
     )
+    .option(
+      "--prompt-environment-variable <NAME>",
+      "Environment variable containing the prompt to pass to `codex exec`.",
+      ""
+    )
     .requiredOption(
       "--codex-home <DIRECTORY>",
       "Path to the Codex CLI home directory (where config files are stored)."
@@ -176,6 +181,7 @@ export async function main() {
       async (options: {
         prompt: string;
         promptFile: string;
+        promptEnvironmentVariable: string;
         codexHome: string;
         cd: string;
         extraArgs: Array<string>;
@@ -192,6 +198,7 @@ export async function main() {
         const {
           prompt,
           promptFile,
+          promptEnvironmentVariable,
           outputFile,
           codexHome,
           cd,
@@ -208,10 +215,16 @@ export async function main() {
 
         const normalizedPrompt = emptyAsNull(prompt);
         const normalizedPromptFile = emptyAsNull(promptFile);
-        if (normalizedPrompt != null && normalizedPromptFile != null) {
-          throw new Error(
-            "Only one of `prompt` or `prompt-file` may be specified."
-          );
+        const normalizedPromptEnvironmentVariable = emptyAsNull(
+          promptEnvironmentVariable
+        );
+        const promptSourceCount = [
+          normalizedPrompt,
+          normalizedPromptFile,
+          normalizedPromptEnvironmentVariable,
+        ].filter((value) => value != null).length;
+        if (promptSourceCount > 1) {
+          throw new Error("Only one prompt source may be specified.");
         }
 
         let promptSource: PromptSource;
@@ -219,10 +232,18 @@ export async function main() {
           promptSource = { type: "inline", content: normalizedPrompt };
         } else if (normalizedPromptFile != null) {
           promptSource = { type: "file", path: normalizedPromptFile };
-        } else {
-          throw new Error(
-            "Either `prompt` or `prompt-file` must be specified."
+        } else if (normalizedPromptEnvironmentVariable != null) {
+          const environmentPrompt = emptyAsNull(
+            process.env[normalizedPromptEnvironmentVariable] ?? ""
           );
+          if (environmentPrompt == null) {
+            throw new Error(
+              `Prompt environment variable \`${normalizedPromptEnvironmentVariable}\` is not set or empty.`
+            );
+          }
+          promptSource = { type: "inline", content: environmentPrompt };
+        } else {
+          throw new Error("A prompt source must be specified.");
         }
 
         // Custom option processing to coerces to null does not work with
