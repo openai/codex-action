@@ -27,6 +27,54 @@ export async function main() {
     .description("Multitool to support openai/codex-action.");
 
   program
+    .command("check-proxy-status")
+    .description("Check if the Responses API proxy is running via its server info file")
+    .argument("<serverInfoFile>", "Path to the server info file")
+    .action(async (serverInfoFile: string) => {
+      const { setOutput } = await import("@actions/core");
+      let existsAndAlive = false;
+
+      try {
+        const stat = await fs.stat(serverInfoFile);
+        if (stat.isFile() && stat.size > 0) {
+          const content = await fs.readFile(serverInfoFile, "utf8");
+          const data = JSON.parse(content);
+          const pid = typeof data.pid === "number" ? data.pid : null;
+
+          if (pid != null) {
+            if (process.platform === "win32") {
+              existsAndAlive = true;
+            } else {
+              try {
+                // kill -0 checks if the process is alive without sending a signal
+                process.kill(pid, 0);
+                existsAndAlive = true;
+              } catch (err: unknown) {
+                // Process does not exist (ESRCH) or no permission (EPERM)
+                const code = (err as NodeJS.ErrnoException).code;
+                if (code === "EPERM") {
+                  existsAndAlive = true;
+                } else {
+                  console.log(`Stale server-info file found for dead proxy PID ${pid}. Removing.`);
+                  await fs.rm(serverInfoFile, { force: true });
+                }
+              }
+            }
+          }
+        }
+      } catch {
+        // File doesn't exist or is invalid JSON
+      }
+
+      if (existsAndAlive) {
+        console.log(`Responses API proxy is running (found valid ${serverInfoFile}).`);
+        setOutput("server_info_file_exists", "true");
+      } else {
+        setOutput("server_info_file_exists", "false");
+      }
+    });
+
+  program
     .command("read-server-info")
     .description("Read server info from the responses API proxy")
     .argument("<serverInfoFile>", "Path to the server info file")
