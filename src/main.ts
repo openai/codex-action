@@ -27,6 +27,105 @@ export async function main() {
     .description("Multitool to support openai/codex-action.");
 
   program
+    .command("validate-inputs")
+    .description("Performs early preflight validation on inputs before proxy startup or host modifications")
+    .requiredOption("--prompt <prompt>", "Inline prompt (may be empty)")
+    .requiredOption("--prompt-file <FILE>", "Prompt file path (may be empty)")
+    .requiredOption("--working-directory <DIRECTORY>", "Working directory path")
+    .requiredOption("--output-schema <SCHEMA>", "Inline schema (may be empty)")
+    .requiredOption("--output-schema-file <FILE>", "Schema file path (may be empty)")
+    .requiredOption("--sandbox <SANDBOX>", "Sandbox mode (may be empty)")
+    .requiredOption("--permission-profile <PROFILE>", "Permission profile (may be empty)")
+    .requiredOption("--safety-strategy <strategy>", "Safety strategy")
+    .action(
+      async (options: {
+        prompt: string;
+        promptFile: string;
+        workingDirectory: string;
+        outputSchema: string;
+        outputSchemaFile: string;
+        sandbox: string;
+        permissionProfile: string;
+        safetyStrategy: string;
+      }) => {
+        const prompt = emptyAsNull(options.prompt);
+        const promptFile = emptyAsNull(options.promptFile);
+        const workingDir = options.workingDirectory;
+        const outputSchema = emptyAsNull(options.outputSchema);
+        const outputSchemaFile = emptyAsNull(options.outputSchemaFile);
+        const sandbox = emptyAsNull(options.sandbox);
+        const permissionProfile = emptyAsNull(options.permissionProfile);
+        const safetyStrategy = toSafetyStrategy(options.safetyStrategy);
+
+        // 1. Validate prompt mutual exclusivity
+        if (prompt != null && promptFile != null) {
+          throw new Error("Only one of `prompt` or `prompt-file` may be specified.");
+        }
+
+        // 2. Validate prompt-file exists and is readable
+        if (promptFile != null) {
+          try {
+            const stat = await fs.stat(promptFile);
+            if (stat.isDirectory()) {
+              throw new Error(`The specified \`prompt-file\` is a directory: ${promptFile}`);
+            }
+          } catch (err: unknown) {
+            if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+              throw new Error(`The specified \`prompt-file\` does not exist: ${promptFile}`);
+            }
+            throw err;
+          }
+        }
+
+        // 3. Validate working directory exists and is a directory
+        if (workingDir) {
+          try {
+            const stat = await fs.stat(workingDir);
+            if (!stat.isDirectory()) {
+              throw new Error(`The specified \`working-directory\` is not a directory: ${workingDir}`);
+            }
+          } catch (err: unknown) {
+            if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+              throw new Error(`The specified \`working-directory\` does not exist: ${workingDir}`);
+            }
+            throw err;
+          }
+        }
+
+        // 4. Validate output schema mutual exclusivity
+        if (outputSchema != null && outputSchemaFile != null) {
+          throw new Error("Only one of `output-schema` or `output-schema-file` may be specified.");
+        }
+
+        // 5. Validate output-schema-file exists if provided
+        if (outputSchemaFile != null) {
+          try {
+            const stat = await fs.stat(outputSchemaFile);
+            if (stat.isDirectory()) {
+              throw new Error(`The specified \`output-schema-file\` is a directory: ${outputSchemaFile}`);
+            }
+          } catch (err: unknown) {
+            if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+              throw new Error(`The specified \`output-schema-file\` does not exist: ${outputSchemaFile}`);
+            }
+            throw err;
+          }
+        }
+
+        // 6. Validate permission profile & sandbox mutual exclusivity
+        if (permissionProfile != null && sandbox != null) {
+          throw new Error("Only one of `permission-profile` or `sandbox` may be specified.");
+        }
+
+        if (permissionProfile != null && safetyStrategy === "read-only") {
+          throw new Error("`permission-profile` cannot be used with the `read-only` safety strategy.");
+        }
+
+        console.log("Input preflight validation passed successfully.");
+      }
+    );
+
+  program
     .command("read-server-info")
     .description("Read server info from the responses API proxy")
     .argument("<serverInfoFile>", "Path to the server info file")
