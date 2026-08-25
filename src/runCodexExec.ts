@@ -84,6 +84,10 @@ export type PromptSource =
   | {
       type: "file";
       path: string;
+    }
+  | {
+      type: "env";
+      variableName: string;
     };
 
 export type SafetyStrategy =
@@ -154,6 +158,9 @@ export async function runCodexExec({
       break;
     case "file":
       input = await readFile(prompt.path, "utf8");
+      break;
+    case "env":
+      input = process.env[prompt.variableName] ?? "";
       break;
   }
 
@@ -310,26 +317,53 @@ export async function runCodexExec({
   );
   try {
     await new Promise((resolve, reject) => {
+      let isSettled = false;
+      const settleReject = (err: Error) => {
+        if (isSettled) return;
+        isSettled = true;
+        reject(err);
+      };
+      const settleResolve = (val: void) => {
+        if (isSettled) return;
+        isSettled = true;
+        resolve(val);
+      };
+
       const child = spawn(program, command, {
         env,
         stdio: ["pipe", "inherit", "inherit"],
       });
-      child.stdin.write(input);
-      child.stdin.end();
 
-      child.on("error", reject);
+      // Handle stdin stream errors (e.g. EPIPE when child exits early before reading)
+      child.stdin.on("error", (err: NodeJS.ErrnoException) => {
+        if (err.code === "EPIPE" || err.code === "ERR_STREAM_DESTROYED") {
+          // Swallow pipe closing error; child 'close' event will reject with exit code
+          return;
+        }
+        settleReject(err);
+      });
+
+      try {
+        child.stdin.write(input, "utf8", () => {
+          child.stdin.end();
+        });
+      } catch (err) {
+        // Ignored; if write throws synchronously due to early close, 'close' event handles it
+      }
+
+      child.on("error", settleReject);
 
       child.on("close", async (code) => {
         if (code !== 0) {
-          reject(new Error(`${program} exited with code ${code}`));
+          settleReject(new Error(`${program} exited with code ${code}`));
           return;
         }
 
         try {
           await finalizeExecution(outputFile, runAsUser);
-          resolve(undefined);
+          settleResolve(undefined);
         } catch (err) {
-          reject(err);
+          settleReject(err as Error);
         }
       });
     });

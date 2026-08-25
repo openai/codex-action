@@ -365,9 +365,15 @@ runs:
         FORCE_COLOR: 1
       shell: bash
       run: |
+        PROMPT_FLAG=()
+        if [ -n "$CODEX_PROMPT" ]; then
+          PROMPT_FLAG=(--prompt-env CODEX_PROMPT)
+        else
+          PROMPT_FLAG=(--prompt-file "$CODEX_PROMPT_FILE")
+        fi
+
         exec env -u NODE_OPTIONS NODE_OPTIONS=--disable-sigusr1 node --disable-sigusr1 "$ACTION_PATH/dist/main.js" run-codex-exec \
-            --prompt "${CODEX_PROMPT}" \
-            --prompt-file "${CODEX_PROMPT_FILE}" \
+            "${PROMPT_FLAG[@]}" \
             --output-file "$CODEX_OUTPUT_FILE" \
             --codex-home "$CODEX_HOME" \
             --cd "$CODEX_WORKING_DIRECTORY" \
