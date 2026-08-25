@@ -180,7 +180,7 @@ runs:
         CODEX_HOME_OVERRIDE: ${{ inputs['codex-home'] }}
         SAFETY_STRATEGY: ${{ inputs['safety-strategy'] }}
         CODEX_USER: ${{ inputs['codex-user'] }}
-        CODEX_RUN_ID: ${{ github.run_id }}
+        CODEX_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
       run: |
         node "$ACTION_PATH/dist/main.js" resolve-codex-home \
           --codex-home-override "$CODEX_HOME_OVERRIDE" \
@@ -193,7 +193,7 @@ runs:
       shell: bash
       env:
         CODEX_HOME: ${{ steps.resolve_home.outputs.codex-home }}
-        CODEX_RUN_ID: ${{ github.run_id }}
+        CODEX_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
       run: |
         server_info_file="$CODEX_HOME/$CODEX_RUN_ID.json"
         echo "server_info_file=$server_info_file" >> "$GITHUB_OUTPUT"
@@ -203,14 +203,10 @@ runs:
       if: ${{ inputs['openai-api-key'] != '' }}
       shell: bash
       env:
+        ACTION_PATH: ${{ github.action_path }}
         SERVER_INFO_FILE: ${{ steps.derive_server_info.outputs.server_info_file }}
       run: |
-        if [ -s "$SERVER_INFO_FILE" ]; then
-          echo "Responses API proxy already appears to be running (found $SERVER_INFO_FILE)."
-          echo "server_info_file_exists=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "server_info_file_exists=false" >> "$GITHUB_OUTPUT"
-        fi
+        node "$ACTION_PATH/dist/main.js" check-proxy-status "$SERVER_INFO_FILE"
 
     # This is its own step to minimize the runtime logic that has access to the
     # API key. Note we use `env -u PROXY_API_KEY` to ensure extra copies of the
