@@ -146,6 +146,29 @@ runs:
       with:
         node-version: "24"
 
+    - name: Preflight validate inputs
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        PROMPT: ${{ inputs.prompt }}
+        PROMPT_FILE: ${{ inputs['prompt-file'] }}
+        WORKING_DIRECTORY: ${{ inputs['working-directory'] || github.workspace }}
+        OUTPUT_SCHEMA: ${{ inputs['output-schema'] }}
+        OUTPUT_SCHEMA_FILE: ${{ inputs['output-schema-file'] }}
+        SANDBOX: ${{ inputs.sandbox }}
+        PERMISSION_PROFILE: ${{ inputs['permission-profile'] }}
+        SAFETY_STRATEGY: ${{ inputs['safety-strategy'] }}
+      shell: bash
+      run: |
+        node "$ACTION_PATH/dist/main.js" validate-inputs \
+          --prompt "$PROMPT" \
+          --prompt-file "$PROMPT_FILE" \
+          --working-directory "$WORKING_DIRECTORY" \
+          --output-schema "$OUTPUT_SCHEMA" \
+          --output-schema-file "$OUTPUT_SCHEMA_FILE" \
+          --sandbox "$SANDBOX" \
+          --permission-profile "$PERMISSION_PROFILE" \
+          --safety-strategy "$SAFETY_STRATEGY"
+
     - name: Check repository write access
       env:
         ACTION_PATH: ${{ github.action_path }}
