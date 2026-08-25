@@ -717,8 +717,24 @@ async function execCommand(
       reject(error);
     });
 
-    child.on("close", (code) => {
-      const exitCode = code ?? 0;
+    child.on("close", (code, signal) => {
+      if (code === null) {
+        // The child process was terminated by a signal
+        if (!options.ignoreFailure) {
+          const error = new Error(
+            `Command terminated by signal: ${command} ${args.join(" ")} (${signal ?? "unknown signal"})`
+          );
+          (error as ExecError).code = 128 + (typeof signal === "number" ? signal : 15);
+          (error as ExecError).stdout = stdout;
+          (error as ExecError).stderr = stderr;
+          reject(error);
+          return;
+        }
+        resolve({ code: 1, stdout, stderr });
+        return;
+      }
+
+      const exitCode = code;
       if (exitCode !== 0 && !options.ignoreFailure) {
         const error = new Error(
           `Command failed: ${command} ${args.join(" ")} (exit code ${exitCode})`

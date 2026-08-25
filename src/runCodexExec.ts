@@ -334,6 +334,7 @@ export async function runCodexExec({
       });
     });
   } finally {
+    await cleanupTempOutput(outputFile, runAsUser);
     await cleanupOutputSchema(resolvedOutputSchema);
   }
 }
@@ -342,23 +343,19 @@ async function finalizeExecution(
   outputFile: OutputFile,
   runAsUser: string | null
 ): Promise<void> {
-  try {
-    let lastMessage: string;
-    if (runAsUser == null) {
-      lastMessage = await readFile(outputFile.file, "utf8");
-    } else {
-      lastMessage = await checkOutput([
-        "sudo",
-        "-u",
-        runAsUser,
-        "cat",
-        outputFile.file,
-      ]);
-    }
-    setOutput("final-message", lastMessage);
-  } finally {
-    await cleanupTempOutput(outputFile, runAsUser);
+  let lastMessage: string;
+  if (runAsUser == null) {
+    lastMessage = await readFile(outputFile.file, "utf8");
+  } else {
+    lastMessage = await checkOutput([
+      "sudo",
+      "-u",
+      runAsUser,
+      "cat",
+      outputFile.file,
+    ]);
   }
+  setOutput("final-message", lastMessage);
 }
 
 type OutputFile =
