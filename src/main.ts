@@ -126,8 +126,12 @@ export async function main() {
   program
     .command("run-codex-exec")
     .description("Invokes `codex exec` with the appropriate arguments")
-    .requiredOption("--prompt <prompt>", "Prompt to pass to `codex exec`.")
-    .requiredOption(
+    .option("--prompt <prompt>", "Prompt to pass to `codex exec`.")
+    .option(
+      "--prompt-env <ENV_VAR>",
+      "Name of the environment variable containing the prompt for `codex exec`."
+    )
+    .option(
       "--prompt-file <FILE>",
       "File containing the prompt to pass to `codex exec`."
     )
@@ -174,8 +178,9 @@ export async function main() {
     )
     .action(
       async (options: {
-        prompt: string;
-        promptFile: string;
+        prompt?: string;
+        promptEnv?: string;
+        promptFile?: string;
         codexHome: string;
         cd: string;
         extraArgs: Array<string>;
@@ -191,6 +196,7 @@ export async function main() {
       }) => {
         const {
           prompt,
+          promptEnv,
           promptFile,
           outputFile,
           codexHome,
@@ -207,21 +213,30 @@ export async function main() {
         } = options;
 
         const normalizedPrompt = emptyAsNull(prompt);
+        const normalizedPromptEnv = emptyAsNull(promptEnv);
         const normalizedPromptFile = emptyAsNull(promptFile);
-        if (normalizedPrompt != null && normalizedPromptFile != null) {
+
+        const promptSourceCount =
+          (normalizedPrompt != null ? 1 : 0) +
+          (normalizedPromptEnv != null ? 1 : 0) +
+          (normalizedPromptFile != null ? 1 : 0);
+
+        if (promptSourceCount > 1) {
           throw new Error(
-            "Only one of `prompt` or `prompt-file` may be specified."
+            "Only one of `prompt`, `prompt-env`, or `prompt-file` may be specified."
           );
         }
 
         let promptSource: PromptSource;
         if (normalizedPrompt != null) {
           promptSource = { type: "inline", content: normalizedPrompt };
+        } else if (normalizedPromptEnv != null) {
+          promptSource = { type: "env", variableName: normalizedPromptEnv };
         } else if (normalizedPromptFile != null) {
           promptSource = { type: "file", path: normalizedPromptFile };
         } else {
           throw new Error(
-            "Either `prompt` or `prompt-file` must be specified."
+            "Either `prompt`, `prompt-env`, or `prompt-file` must be specified."
           );
         }
 
@@ -379,7 +394,8 @@ function toOptionalSandboxMode(value: string): SandboxMode | null {
   }
 }
 
-function emptyAsNull(value: string): string | null {
+function emptyAsNull(value: string | undefined | null): string | null {
+  if (value == null) return null;
   return value.trim().length == 0 ? null : value;
 }
 
