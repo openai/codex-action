@@ -237,8 +237,9 @@ runs:
           args+=(--upstream-url "$UPSTREAM_URL")
         fi
 
+        PROXY_LOG="$RUNNER_TEMP/codex-responses-api-proxy.log"
         (
-          exec env -u PROXY_API_KEY -u NODE_OPTIONS NODE_OPTIONS=--disable-sigusr1 "${args[@]}" <<< "$PROXY_API_KEY"
+          exec env -u PROXY_API_KEY -u NODE_OPTIONS NODE_OPTIONS=--disable-sigusr1 "${args[@]}" <<< "$PROXY_API_KEY" > "$PROXY_LOG" 2>&1
         ) &
 
     - name: Wait for Responses API proxy
@@ -247,6 +248,7 @@ runs:
       env:
         SERVER_INFO_FILE: ${{ steps.derive_server_info.outputs.server_info_file }}
       run: |
+        PROXY_LOG="$RUNNER_TEMP/codex-responses-api-proxy.log"
         for _ in {1..10}; do
           if [ -s "$SERVER_INFO_FILE" ]; then
             break
@@ -255,6 +257,11 @@ runs:
         done
         if [ ! -s "$SERVER_INFO_FILE" ]; then
           echo "responses-api-proxy did not write server info" >&2
+          if [ -f "$PROXY_LOG" ]; then
+            echo "--- Responses API proxy log output ---" >&2
+            cat "$PROXY_LOG" >&2
+            echo "--------------------------------------" >&2
+          fi
           exit 1
         fi
 

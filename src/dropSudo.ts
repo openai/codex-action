@@ -476,9 +476,33 @@ async function hasWritableSocketAcl(
   }
 }
 
+/**
+ * System services whose IPC sockets should never have their permissions modified to 0700,
+ * as non-root service peers (e.g. systemd-resolve, messagebus) need group/other communication.
+ */
+const PRESERVED_SYSTEM_SOCKET_PREFIXES = [
+  "/run/dbus/",
+  "/run/systemd/",
+  "/var/run/dbus/",
+  "/var/run/systemd/",
+];
+
+function isPreservedSystemServiceSocket(socketPath: string): boolean {
+  return PRESERVED_SYSTEM_SOCKET_PREFIXES.some((prefix) =>
+    socketPath.startsWith(prefix)
+  );
+}
+
 async function restrictRootServiceSocket(
   socket: RootServiceSocket
 ): Promise<boolean> {
+  if (isPreservedSystemServiceSocket(socket.path)) {
+    console.log(
+      `Preserving system service socket permissions for ${socket.path}.`
+    );
+    return false;
+  }
+
   let socketHandle;
   try {
     socketHandle = await fs.open(
@@ -538,6 +562,9 @@ async function verifyPrivilegedSocketsRestricted(
     !originalGroupIds
   );
   for (const socket of sockets) {
+    if (isPreservedSystemServiceSocket(socket.path)) {
+      continue;
+    }
     if (typeof process.getuid === "function" && process.getuid() === 0) {
       throw new Error(`drop-sudo did not revoke access to ${socket.path}.`);
     }
