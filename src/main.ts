@@ -403,10 +403,21 @@ async function resolveCodexHome(
   githubRunId: string
 ): Promise<string> {
   if (inputCodexHome != null) {
-    return expandTilde(inputCodexHome);
+    const customHome = expandTilde(inputCodexHome);
+    if (safetyStrategy === "unprivileged-user" && codexUser != null) {
+      await checkOutput(["sudo", "-u", codexUser, "mkdir", "-p", customHome]);
+    } else {
+      await fs.mkdir(customHome, { recursive: true });
+    }
+    return customHome;
   }
   const envHome = emptyAsNull(process.env.CODEX_HOME ?? "");
   if (envHome != null) {
+    if (safetyStrategy === "unprivileged-user" && codexUser != null) {
+      await checkOutput(["sudo", "-u", codexUser, "mkdir", "-p", envHome]);
+    } else {
+      await fs.mkdir(envHome, { recursive: true });
+    }
     return envHome;
   }
 
