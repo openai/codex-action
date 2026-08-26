@@ -25,14 +25,21 @@ function runCodexExecWithFakeCodex({
   permissionProfile = "",
   extraArgs = "",
   safetyStrategy = "unsafe",
+  prompt = "test prompt",
+  promptFileContents = null,
+  fakeCodexSource = null,
 } = {}) {
   const tempDir = mkdtempSync(path.join(tmpdir(), "codex-action-permissions-"));
   const capturePath = path.join(tempDir, "args.json");
   const outputPath = path.join(tempDir, "output.txt");
   const fakeCodexPath = path.join(tempDir, "codex.mjs");
+  const promptPath = path.join(tempDir, "prompt.txt");
+  if (promptFileContents != null) {
+    writeFileSync(promptPath, promptFileContents, "utf8");
+  }
   writeFileSync(
     fakeCodexPath,
-    `import { writeFileSync } from "node:fs";
+    fakeCodexSource ?? `import { writeFileSync } from "node:fs";
 const args = process.argv.slice(2);
 writeFileSync(process.env.CODEX_CAPTURE_ARGS, JSON.stringify(args));
 const outputIndex = args.indexOf("--output-last-message");
@@ -62,9 +69,9 @@ writeFileSync(args[outputIndex + 1], "fake final message\\n");
       mainPath,
       "run-codex-exec",
       "--prompt",
-      "test prompt",
+      promptFileContents == null ? prompt : "",
       "--prompt-file",
-      "",
+      promptFileContents == null ? "" : promptPath,
       "--codex-home",
       "",
       "--cd",
@@ -110,6 +117,26 @@ writeFileSync(args[outputIndex + 1], "fake final message\\n");
   rmSync(tempDir, { recursive: true, force: true });
   return { result, capturedArgs };
 }
+
+test("reports stdin EPIPE as a controlled run-codex-exec failure", () => {
+  const { result, capturedArgs } = runCodexExecWithFakeCodex({
+    promptFileContents: "x".repeat(64 * 1024 * 1024),
+    fakeCodexSource: `import { writeFileSync } from "node:fs";
+const args = process.argv.slice(2);
+writeFileSync(process.env.CODEX_CAPTURE_ARGS, JSON.stringify(args));
+process.stdin.destroy();
+process.exit(7);
+`,
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.ok(capturedArgs.includes("exec"));
+  assert.match(
+    result.stderr,
+    /failed to write prompt to codex stdin: write EPIPE|codex exited with code 7/
+  );
+  assert.doesNotMatch(result.stderr, /Unhandled 'error' event/);
+});
 
 test("preserves workspace-write as the default legacy sandbox", () => {
   const { result, capturedArgs } = runCodexExecWithFakeCodex();

@@ -314,22 +314,47 @@ export async function runCodexExec({
         env,
         stdio: ["pipe", "inherit", "inherit"],
       });
-      child.stdin.write(input);
-      child.stdin.end();
+      let settled = false;
 
-      child.on("error", reject);
+      const rejectOnce = (err: unknown) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        reject(err);
+      };
+
+      const resolveOnce = () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        resolve(undefined);
+      };
+
+      child.stdin.on("error", (err) => {
+        rejectOnce(
+          new Error(`failed to write prompt to ${program} stdin: ${err.message}`)
+        );
+      });
+      child.stdin.end(input);
+
+      child.on("error", rejectOnce);
 
       child.on("close", async (code) => {
+        if (settled) {
+          return;
+        }
         if (code !== 0) {
-          reject(new Error(`${program} exited with code ${code}`));
+          rejectOnce(new Error(`${program} exited with code ${code}`));
           return;
         }
 
         try {
           await finalizeExecution(outputFile, runAsUser);
-          resolve(undefined);
+          resolveOnce();
         } catch (err) {
-          reject(err);
+          rejectOnce(err);
         }
       });
     });
