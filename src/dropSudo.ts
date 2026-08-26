@@ -166,7 +166,7 @@ async function dropSudoWithPrivileges(options: DropSudoOptions): Promise<void> {
         }
       }
       for (const socket of serviceSockets) {
-        if (await restrictRootServiceSocket(socket)) {
+        if (await restrictRootServiceSocket(socket, options.user)) {
           changed = true;
         }
       }
@@ -477,7 +477,8 @@ async function hasWritableSocketAcl(
 }
 
 async function restrictRootServiceSocket(
-  socket: RootServiceSocket
+  socket: RootServiceSocket,
+  user: string
 ): Promise<boolean> {
   let socketHandle;
   try {
@@ -503,12 +504,50 @@ async function restrictRootServiceSocket(
     if (stats.dev !== socket.device || stats.ino !== socket.inode) {
       throw new Error(`${socket.path} changed while dropping privileges.`);
     }
+
+    const fdPath = `/proc/self/fd/${socketHandle.fd}`;
+
+    // Deny only the runner user, via a named-user ACL entry. Removing the
+    // socket's group/other bits instead (the previous behavior) also locks
+    // out the system peers the socket exists to serve — D-Bus clients such
+    // as systemd-resolved, journald stdout connections, docker group
+    // members — and on the host that is currently running this job it
+    // leaves core services unable to (re)start: systemd-resolved crash-loops
+    // with "Failed to connect to system bus: Permission denied" and name
+    // resolution dies machine-wide.
+    const denyEntry = `user:${user}:---`;
+    const current = await execCommand("getfacl", ["-c", fdPath], {
+      capture: true,
+      ignoreFailure: true,
+    });
+    if (current.code === 0) {
+      if (current.stdout.includes(denyEntry)) {
+        console.log(`Access to ${socket.path} is already denied for ${user}.`);
+        return false;
+      }
+      await execCommand("setfacl", ["-m", `u:${user}:---`, fdPath]);
+      const restricted = await execCommand("getfacl", ["-c", fdPath], {
+        capture: true,
+      });
+      if (!restricted.stdout.includes(denyEntry)) {
+        throw new Error(`Could not restrict access to ${socket.path}.`);
+      }
+      console.log(`Denied ${user} access to ${socket.path}.`);
+      return true;
+    }
+
+    // No working ACL tooling (getfacl/setfacl missing, or the filesystem
+    // rejects ACLs): fall back to the previous chmod so the security posture
+    // never regresses, accepting its collateral on system peers.
     if ((stats.mode & 0o077) === 0) {
       console.log(`Access to ${socket.path} is already restricted.`);
       return false;
     }
-
-    await fs.chmod(`/proc/self/fd/${socketHandle.fd}`, stats.mode & 0o700);
+    console.log(
+      `ACL tooling unavailable for ${socket.path}; falling back to chmod ` +
+        `(non-root system peers of this socket will lose access).`
+    );
+    await fs.chmod(fdPath, stats.mode & 0o700);
     const restrictedStats = await socketHandle.stat();
     if ((restrictedStats.mode & 0o077) !== 0) {
       throw new Error(`Could not restrict access to ${socket.path}.`);
