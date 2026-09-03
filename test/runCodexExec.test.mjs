@@ -26,6 +26,7 @@ function runCodexExecWithFakeCodex({
   extraArgs = "",
   safetyStrategy = "unsafe",
   holdStdioOpen = false,
+  writeLargeFinalOutput = false,
 } = {}) {
   const tempDir = mkdtempSync(path.join(tmpdir(), "codex-action-permissions-"));
   const capturePath = path.join(tempDir, "args.json");
@@ -42,6 +43,10 @@ if (outputIndex < 0 || outputIndex + 1 >= args.length) {
   throw new Error("missing --output-last-message");
 }
 writeFileSync(args[outputIndex + 1], "fake final message\\n");
+if (process.env.CODEX_WRITE_LARGE_FINAL_OUTPUT === "1") {
+  process.stdout.write("stdout-start:" + "o".repeat(1024 * 1024) + ":stdout-end\\n");
+  process.stderr.write("stderr-start:" + "e".repeat(1024 * 1024) + ":stderr-end\\n");
+}
 if (process.env.CODEX_HOLD_STDIO_OPEN === "1") {
   console.log("fake codex stdout");
   console.error("fake codex stderr");
@@ -110,8 +115,10 @@ if (process.env.CODEX_HOLD_STDIO_OPEN === "1") {
         PATH: `${tempDir}${path.delimiter}${process.env.PATH ?? ""}`,
         CODEX_CAPTURE_ARGS: capturePath,
         CODEX_HOLD_STDIO_OPEN: holdStdioOpen ? "1" : "0",
+        CODEX_WRITE_LARGE_FINAL_OUTPUT: writeLargeFinalOutput ? "1" : "0",
       },
       timeout: holdStdioOpen ? 2_000 : undefined,
+      maxBuffer: 10 * 1024 * 1024,
     }
   );
 
@@ -133,6 +140,24 @@ test("does not wait for descendants holding stdio open", () => {
   assert.match(result.stdout, /fake codex stdout/);
   assert.match(result.stderr, /fake codex stderr/);
   assert.match(result.stdout, /fake final message/);
+});
+
+test("drains large final output without waiting for descendant stdio", () => {
+  const { result } = runCodexExecWithFakeCodex({
+    holdStdioOpen: true,
+    writeLargeFinalOutput: true,
+  });
+
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.error?.message ?? result.stderr);
+  assert.match(
+    result.stdout,
+    new RegExp(`stdout-start:${"o".repeat(1024 * 1024)}:stdout-end`)
+  );
+  assert.match(
+    result.stderr,
+    new RegExp(`stderr-start:${"e".repeat(1024 * 1024)}:stderr-end`)
+  );
 });
 
 test("preserves workspace-write as the default legacy sandbox", () => {
