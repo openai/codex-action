@@ -108,7 +108,7 @@ jobs:
 | `working-directory`      | Directory passed to `codex exec --cd`. Defaults to the repository root.                                                                        | `""`        |
 | `sandbox`                | Legacy sandbox mode. Prefer `permission-profile: ":workspace"` for new workflows. Mutually exclusive with `permission-profile`.               | `""`        |
 | `permission-profile`     | Built-in or configured [Codex permission profile](https://developers.openai.com/codex/permissions) selected through `default_permissions`.      | `""`        |
-| `codex-version`          | Version of `@openai/codex` to install.                                                                                                         | `""`        |
+| `codex-version`          | Version, tag, or range of `@openai/codex` to install. If unset, resolves the latest published version at run time; pin it for reproducible builds. | `""`        |
 | `codex-args`             | Extra arguments forwarded to `codex exec`. Accepts JSON arrays (`["--flag", "value"]`) or shell-style strings.                                 | `""`        |
 | `output-schema`          | Inline schema contents written to a temp file and passed to `codex exec --output-schema`. Mutually exclusive with `output-schema-file`.        | `""`        |
 | `output-schema-file`     | Schema file forwarded to `codex exec --output-schema`. Leave empty to skip passing the option.                                                 | `""`        |
@@ -185,6 +185,7 @@ See [Protecting your `OPENAI_API_KEY`](./docs/security.md#protecting-your-openai
 | Name            | Description                             |
 | --------------- | --------------------------------------- |
 | `final-message` | Final message returned by `codex exec`. |
+| `codex-version` | Exact `@openai/codex` version installed for the run. |
 
 As we saw in the example above, we took the `final-message` output of the `run_codex` step and made it an output of the `codex` job in the workflow:
 
@@ -194,6 +195,7 @@ jobs:
     # ...
     outputs:
       final_message: ${{ steps.run_codex.outputs.final-message }}
+      codex_version: ${{ steps.run_codex.outputs.codex-version }}
 ```
 
 ## Additional tips
