@@ -44,7 +44,7 @@ test("action exposes the resolved codex version as an output", () => {
   );
 });
 
-test("action resolves the installed codex version once and reuses it", () => {
+test("action reports the installed codex version without changing proxy resolution", () => {
   const installCodexStep = actionStep("Install Codex CLI");
   const installProxyStep = actionStep("Install Codex Responses API proxy");
 
@@ -54,7 +54,7 @@ test("action resolves the installed codex version once and reuses it", () => {
   assert.match(installCodexStep, /GITHUB_STEP_SUMMARY/);
   assert.match(
     installProxyStep,
-    /CODEX_VERSION: \$\{\{ steps\.resolve_codex_version\.outputs\.codex-version \}\}/
+    /CODEX_VERSION: \$\{\{ inputs\['codex-version'\] \}\}/
   );
 });
 
