@@ -41,7 +41,7 @@ inputs:
     required: false
     default: ""
   codex-version:
-    description: "Version of `@openai/codex` to install."
+    description: "Version, tag, or range of `@openai/codex` to install. Leave empty to resolve the latest published version at run time."
     required: false
     default: ""
   codex-args:
@@ -124,6 +124,9 @@ outputs:
   final-message:
     description: "Raw output emitted by `codex exec`."
     value: ${{ steps.run_codex.outputs['final-message'] }}
+  codex-version:
+    description: "Exact installed `@openai/codex` version resolved for this run."
+    value: ${{ steps.resolve_codex_version.outputs.codex-version }}
 runs:
   using: "composite"
   steps:
@@ -161,15 +164,29 @@ runs:
           --allow-users "$ALLOW_USERS"
 
     - name: Install Codex CLI
+      id: resolve_codex_version
       shell: bash
       env:
         CODEX_VERSION: ${{ inputs['codex-version'] }}
-      run: npm install -g "@openai/codex@${CODEX_VERSION}"
+      run: |
+        npm install -g "@openai/codex@${CODEX_VERSION}"
+
+        codex_root="$(npm root -g)"
+        resolved_codex_version="$(node -p 'require(process.argv[1]).version' "$codex_root/@openai/codex/package.json")"
+
+        echo "codex-version=$resolved_codex_version" >> "$GITHUB_OUTPUT"
+        echo "Installed Codex CLI version: $resolved_codex_version"
+        {
+          echo "### Codex CLI"
+          echo
+          echo "- Resolved version: \
+\`$resolved_codex_version\`"
+        } >> "$GITHUB_STEP_SUMMARY"
 
     - name: Install Codex Responses API proxy
       shell: bash
       env:
-        CODEX_VERSION: ${{ inputs['codex-version'] }}
+        CODEX_VERSION: ${{ steps.resolve_codex_version.outputs.codex-version }}
       run: npm install -g "@openai/codex-responses-api-proxy@${CODEX_VERSION}"
 
     - name: Resolve Codex home

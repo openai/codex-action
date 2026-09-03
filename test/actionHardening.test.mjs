@@ -37,6 +37,27 @@ test("Responses proxy replaces inherited Node options without exposing its API k
   assert.doesNotMatch(step, /printenv PROXY_API_KEY\s*\|/);
 });
 
+test("action exposes the resolved codex version as an output", () => {
+  assert.match(
+    action,
+    /outputs:\n  final-message:[\s\S]*\n  codex-version:\n    description: "Exact installed `@openai\/codex` version resolved for this run\."\n    value: \$\{\{ steps\.resolve_codex_version\.outputs\.codex-version \}\}/
+  );
+});
+
+test("action resolves the installed codex version once and reuses it", () => {
+  const installCodexStep = actionStep("Install Codex CLI");
+  const installProxyStep = actionStep("Install Codex Responses API proxy");
+
+  assert.match(installCodexStep, /id: resolve_codex_version/);
+  assert.match(installCodexStep, /resolved_codex_version=.*@openai\/codex\/package\.json/);
+  assert.match(installCodexStep, /echo "codex-version=\$resolved_codex_version" >> "\$GITHUB_OUTPUT"/);
+  assert.match(installCodexStep, /GITHUB_STEP_SUMMARY/);
+  assert.match(
+    installProxyStep,
+    /CODEX_VERSION: \$\{\{ steps\.resolve_codex_version\.outputs\.codex-version \}\}/
+  );
+});
+
 test(
   "Responses proxy environment removes unsafe Node options and its API key",
   { skip: process.platform === "win32" },
