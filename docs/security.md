@@ -4,7 +4,7 @@ Running Codex as part of a GitHub workflow can be a powerful tool, but it is imp
 
 ## Limiting who can run your workflow
 
-One of the most fundamental ways to safeguard your workflow is to limit who can run it in the first place. By default, `openai/codex-action` can only be run by a user who has _write_ access to your repository. While you can expand this list via the `allow-users` and `allow-bots` options, do so with caution.
+One of the most fundamental ways to safeguard your workflow is to limit who can run it in the first place. By default, `openai/codex-action` can only be run by a user who has _write_ access to your repository. While you can expand this list via `allow-users`, allow trusted GitHub bot actors (`github-actions[bot]`) via `allow-bots`, or list custom trusted bots via `allow-bot-users`, do so with caution. `allow-bot-users` does not support `*`; list each trusted bot explicitly.
 
 Further, while you may design your workflow such that those with _write_ access can trigger it on content from arbitrary users (i.e., by adding a label to an issue created by an external user) such that you rely on manual approval as a means of defense, it is still important to consider other potential exploits, such as untrusted input.
 
@@ -14,7 +14,50 @@ There is a lot of valuable context that can be used to fuel your invocation of C
 
 - **Pull requests**: the title of a pull request is often clear, but it is fairly easy to hide information in a pull request body using an HTML comment (`<!-- -->`) that is readily available to the model but effectively invisible to the user.
 - **Commit messages**: a pull request can be composed of many commits. The messages for individual commits often go unnoticed, but could read by Codex.
-- **Screenshots** screenshots and other media have been known to be used as vehicles for prompt injection.
+- **Repository instruction files**: when Codex operates on pull request-controlled content, files such as `AGENTS.md`, `AGENTS.override.md`, or configured fallback project docs from that content should be considered part of the untrusted input surface.
+- **Screenshots**: screenshots and other media have been known to be used as vehicles for prompt injection.
+
+## Limit command permissions
+
+Use `permission-profile` to select the narrowest filesystem and network policy that still lets Codex
+complete the task. For workflows that edit the checkout, prefer the built-in `:workspace` profile
+over the legacy `sandbox: workspace-write` setting. Use a custom profile when the workflow needs a
+more specific policy. See the
+[Codex permissions documentation](https://developers.openai.com/codex/permissions) for the available
+built-in profiles and configuration schema.
+
+Permission profiles constrain commands that Codex runs; they do not replace the action's
+`safety-strategy`, which controls the privileges of the Codex process itself. Continue to use
+`drop-sudo` or a deliberately configured `unprivileged-user` when a profile grants filesystem writes
+or network access.
+
+Permission profiles and the legacy `sandbox` input do not compose. The action rejects both inputs
+together and rejects `codex-args` that would weaken protected permission, trust, provider, or
+command-execution settings. Alternate configuration profiles, additional writable directories, and
+conflicting hook or sandbox bypasses are also rejected; existing benign flags, configuration
+overrides, and `--enable use_legacy_landlock` remain available. `--full-auto` conflicts with a
+permission profile or an effective read-only sandbox. Image attachments and overrides loading local
+instruction, compaction, or catalog files are rejected only for custom named permission profiles
+because their unsandboxed reads can bypass scoped filesystem access. Explicitly unsafe, unrestricted
+runs retain argument pass-through.
+
+The existing `codex-home/config.toml` and named permission profiles remain trusted inputs and are not
+sanitized by this validation. Do not point `codex-home` at configuration controlled by an untrusted
+checkout; review every loaded configuration layer when a workflow relies on restricted permissions.
+
+## Avoid shell injection in workflow steps
+
+GitHub Actions expands `${{ ... }}` expressions before the shell runs your `run:` script. If you splice untrusted values such as branch names, issue titles, comment bodies, or action inputs directly into the script, those values can break shell quoting and execute arbitrary commands.
+
+Instead, pass those values through `env:` and quote the shell variables that consume them:
+
+```yaml
+- name: Safe shell usage
+  env:
+    PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+  run: |
+    git fetch origin "$PR_BASE_REF"
+```
 
 <!-- TODO ## Protecting secrets -->
 

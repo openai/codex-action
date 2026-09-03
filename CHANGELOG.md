@@ -1,18 +1,53 @@
 # codex-action Changelog
 
-## [v1.4](https://github.com/openai/codex-action/tree/v1.4) (2005-11-19)
+## [v1.12](https://github.com/openai/codex-action/tree/v1.12) (2026-08-20)
+
+- Strengthen Linux runner privilege isolation and Responses API proxy credential handling.
+- Reject Codex arguments and configuration overrides that conflict with protected execution settings.
+- Require unprivileged user namespaces for Linux `drop-sudo`; run the action after steps that need `sudo`, Docker, or privileged service sockets.
+- Document runner requirements, permission-profile behavior, and trusted configuration boundaries.
+
+## [v1.11](https://github.com/openai/codex-action/tree/v1.11) (2026-07-04)
+
+- [#116](https://github.com/openai/codex-action/pull/116) keep the permission profile helper backward compatible
+
+## [v1.10](https://github.com/openai/codex-action/tree/v1.10) (2026-07-02)
+
+- [#113](https://github.com/openai/codex-action/pull/113) add Codex permission profile support
+
+## [v1.9](https://github.com/openai/codex-action/tree/v1.9) (2026-06-22)
+
+- [#85](https://github.com/openai/codex-action/pull/85) update the internal `setup-node` pin to `v6.3.0`
+
+## [v1.8](https://github.com/openai/codex-action/tree/v1.8) (2026-04-29)
+
+- [#91](https://github.com/openai/codex-action/pull/91) tighten what bots are allowed
+
+## [v1.7](https://github.com/openai/codex-action/tree/v1.7) (2026-04-24)
+
+- [#89](https://github.com/openai/codex-action/pull/89) restrict bot permission bypass
+
+## [v1.6](https://github.com/openai/codex-action/tree/v1.6) (2026-03-16)
+
+- [#77](https://github.com/openai/codex-action/pull/77) enable GitHub-hosted Linux bubblewrap support
+
+## [v1.5](https://github.com/openai/codex-action/tree/v1.5) (2026-03-16)
+
+- [#74](https://github.com/openai/codex-action/pull/74) harden shell interpolation in action workflows
+
+## [v1.4](https://github.com/openai/codex-action/tree/v1.4) (2025-11-19)
 
 - [#58](https://github.com/openai/codex-action/pull/58) revert #56 and use the latest stable version of Codex CLI again
 
-## [v1.3](https://github.com/openai/codex-action/tree/v1.3) (2005-11-19)
+## [v1.3](https://github.com/openai/codex-action/tree/v1.3) (2025-11-19)
 
 - [#56](https://github.com/openai/codex-action/pull/56) temporarily set the default version of Codex CLI to `0.58.0`
 
-## [v1.2](https://github.com/openai/codex-action/tree/v1.2) (2005-11-07)
+## [v1.2](https://github.com/openai/codex-action/tree/v1.2) (2025-11-07)
 
 - [#52](https://github.com/openai/codex-action/pull/52) add `baseUrl` to `Octokit` constructor, if appropriate, for GHE
 
-## [v1.1](https://github.com/openai/codex-action/tree/v1.1) (2005-11-05)
+## [v1.1](https://github.com/openai/codex-action/tree/v1.1) (2025-11-05)
 
 - [#47](https://github.com/openai/codex-action/pull/47) added support for Azure via the new `responses-api-endpoint` parameter
 - [#36](https://github.com/openai/codex-action/pull/36) added `effort` parameter

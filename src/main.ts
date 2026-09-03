@@ -106,12 +106,19 @@ export async function main() {
       )
     )
     .addOption(new Option("--root-phase", "internal").default(false).hideHelp())
+    .addOption(new Option("--runner-credentials <json>", "internal").hideHelp())
     .action(
-      async (options: { user: string; group: string; rootPhase: boolean }) => {
+      async (options: {
+        user: string;
+        group: string;
+        rootPhase: boolean;
+        runnerCredentials?: string;
+      }) => {
         await dropSudo({
           user: options.user,
           group: options.group,
           rootPhase: options.rootPhase,
+          runnerCredentials: options.runnerCredentials,
         });
       }
     );
@@ -148,7 +155,12 @@ export async function main() {
     )
     .requiredOption(
       "--sandbox <SANDBOX>",
-      "Sandbox mode override to pass to `codex exec`."
+      "Legacy sandbox mode override to pass to `codex exec` (may be empty)."
+    )
+    .option(
+      "--permission-profile <PROFILE>",
+      "Permission profile to select through `default_permissions` (may be empty).",
+      ""
     )
     .requiredOption("--model <model>", "Model the agent should use")
     .requiredOption("--effort <effort>", "Reasoning effort the agent should use")
@@ -171,6 +183,7 @@ export async function main() {
         outputSchemaFile: string;
         outputSchema: string;
         sandbox: string;
+        permissionProfile: string;
         model: string;
         effort: string;
         safetyStrategy: string;
@@ -186,6 +199,7 @@ export async function main() {
           outputSchema,
           outputSchemaFile,
           sandbox,
+          permissionProfile,
           model,
           effort,
           safetyStrategy,
@@ -245,7 +259,8 @@ export async function main() {
           extraArgs,
           explicitOutputFile: emptyAsNull(outputFile),
           outputSchema: outputSchemaSource,
-          sandbox: toSandboxMode(sandbox),
+          sandbox: toOptionalSandboxMode(sandbox),
+          permissionProfile: emptyAsNull(permissionProfile),
           model: emptyAsNull(model),
           effort: emptyAsNull(effort),
           safetyStrategy: toSafetyStrategy(safetyStrategy),
@@ -261,26 +276,34 @@ export async function main() {
     )
     .option(
       "--allow-bots <boolean>",
-      "Allow GitHub App and bot actors to bypass the write-access check (default: true).",
+      "Allow trusted GitHub bot actors to bypass the write-access check (default: false).",
       parseBoolean,
-      true
+      false
     )
     .option(
       "--allow-users <users>",
       "Comma-separated list of GitHub usernames who can run this action, or '*' to allow all users.",
       ""
     )
+    .option(
+      "--allow-bot-users <users>",
+      "Comma-separated list of GitHub bot usernames that can bypass the write-access check. '*' is not supported.",
+      ""
+    )
     .action(
       async ({
         allowBots,
         allowUsers,
+        allowBotUsers,
       }: {
         allowBots: boolean;
         allowUsers: string;
+        allowBotUsers: string;
       }) => {
         const result = await ensureActorHasWriteAccess({
           allowBotActors: allowBots,
           allowUsers,
+          allowBotUsers,
         });
         switch (result.status) {
           case "approved": {
@@ -313,7 +336,14 @@ function parseExtraArgs(value: string): Array<string> {
   }
 
   if (value.startsWith("[")) {
-    return JSON.parse(value);
+    const parsed: unknown = JSON.parse(value);
+    if (
+      !Array.isArray(parsed) ||
+      !parsed.every((argument) => typeof argument === "string")
+    ) {
+      throw new Error("`codex-args` must be a JSON array of strings.");
+    }
+    return parsed;
   } else {
     return parseArgsStringToArgv(value);
   }
@@ -333,15 +363,18 @@ function toSafetyStrategy(value: string): SafetyStrategy {
   }
 }
 
-function toSandboxMode(value: string): SandboxMode {
-  switch (value) {
+function toOptionalSandboxMode(value: string): SandboxMode | null {
+  const normalized = emptyAsNull(value);
+  switch (normalized) {
+    case null:
+      return null;
     case "read-only":
     case "workspace-write":
     case "danger-full-access":
-      return value;
+      return normalized;
     default:
       throw new Error(
-        `Invalid sandbox: ${value}. Must be one of 'read-only', 'workspace-write', or 'danger-full-access'.`
+        `Invalid sandbox: ${normalized}. Must be one of 'read-only', 'workspace-write', or 'danger-full-access'.`
       );
   }
 }
