@@ -17,6 +17,7 @@ import { ensureActorHasWriteAccess } from "./checkActorPermissions";
 import parseArgsStringToArgv from "string-argv";
 import { writeProxyConfig } from "./writeProxyConfig";
 import { checkOutput } from "./checkOutput";
+import { ProgressStatus, updatePullRequestProgress } from "./updatePullRequestProgress";
 
 export async function main() {
   const program = new Command();
@@ -25,6 +26,17 @@ export async function main() {
     .name("codex-action")
     .version(pkg.version)
     .description("Multitool to support openai/codex-action.");
+
+  program
+    .command("update-pr-progress")
+    .description("Create or update the action's pull request progress comment")
+    .requiredOption("--status <status>", "One of running, completed, or failed")
+    .action(async (options: { status: string }) => {
+      if (!["running", "completed", "failed"].includes(options.status)) {
+        throw new Error("Progress status must be one of running, completed, or failed.");
+      }
+      await updatePullRequestProgress({ status: options.status as ProgressStatus });
+    });
 
   program
     .command("read-server-info")

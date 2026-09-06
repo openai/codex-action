@@ -199,6 +199,17 @@ test("Codex action and its descendants replace inherited Node options", () => {
   );
 });
 
+test("opt-in pull request progress comments bracket Codex execution", () => {
+  const start = actionStep("Start pull request progress");
+  const finish = actionStep("Update pull request progress");
+
+  assert.match(start, /inputs\['progress-comment'\] == 'true'/);
+  assert.match(start, /update-pr-progress --status running/);
+  assert.match(finish, /always\(\) && inputs\['progress-comment'\] == 'true'/);
+  assert.match(finish, /steps\.run_codex\.outcome == 'success' && 'completed' \|\| 'failed'/);
+  assert.match(finish, /update-pr-progress --status "\$CODEX_PROGRESS_STATUS"/);
+});
+
 test(
   "nested Codex Node launchers inherit SIGUSR1 protection",
   { skip: process.platform === "win32", timeout: 5_000 },

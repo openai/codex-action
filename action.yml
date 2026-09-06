@@ -108,6 +108,10 @@ inputs:
     description: "If `safety-strategy` is set to `unprivileged-user`, this specifies the UNIX username to run Codex as."
     required: false
     default: ""
+  progress-comment:
+    description: "When true, create and update a sticky progress comment on pull requests. Requires pull-requests: write permission."
+    required: false
+    default: "false"
   allow-users:
     description: "Comma-separated list of GitHub usernames who can run this action, or '*' to allow all users. Note users who have write access to the GitHub repo have access by default and do not need to be listed here."
     required: false
@@ -343,6 +347,14 @@ runs:
         fi
         echo "Confirmed sudo privilege is disabled."
 
+    - name: Start pull request progress
+      if: ${{ inputs['progress-comment'] == 'true' }}
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        GITHUB_TOKEN: ${{ github.token }}
+      run: node "$ACTION_PATH/dist/main.js" update-pr-progress --status running
+
     - name: Run codex exec
       id: run_codex
       if: ${{ inputs.prompt != '' || inputs['prompt-file'] != '' }}
@@ -380,3 +392,12 @@ runs:
             --effort "$CODEX_EFFORT" \
             --safety-strategy "$CODEX_SAFETY_STRATEGY" \
             --codex-user "$CODEX_USER"
+
+    - name: Update pull request progress
+      if: ${{ always() && inputs['progress-comment'] == 'true' }}
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        GITHUB_TOKEN: ${{ github.token }}
+        CODEX_PROGRESS_STATUS: ${{ steps.run_codex.outcome == 'success' && 'completed' || 'failed' }}
+      run: node "$ACTION_PATH/dist/main.js" update-pr-progress --status "$CODEX_PROGRESS_STATUS"
