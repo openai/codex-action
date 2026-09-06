@@ -117,6 +117,7 @@ jobs:
 | `codex-home`             | Directory to use as the Codex CLI home (config/cache). Uses the CLI default when empty.                                                        | `""`        |
 | `safety-strategy`        | Controls how the action restricts Codex privileges. See [Safety strategy](#safety-strategy).                                                   | `drop-sudo` |
 | `codex-user`             | Username to run Codex as when `safety-strategy` is `unprivileged-user`.                                                                        | `""`        |
+| `progress-comment`       | When `true`, maintains a sticky progress comment on pull requests. Requires `pull-requests: write`.                                            | `false`       |
 | `allow-users`            | List of GitHub usernames who can trigger the action in addition to those who have write access to the repo.                                    | `""`        |
 | `allow-bots`             | Allow runs triggered by trusted GitHub bot accounts (`github-actions[bot]`) to bypass the write-access check.                                  | `false`     |
 | `allow-bot-users`        | List of GitHub bot usernames that can bypass the write-access check. `*` is not supported; list trusted bots explicitly.                       | `""`        |
