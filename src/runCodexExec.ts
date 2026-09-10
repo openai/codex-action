@@ -2,6 +2,7 @@ import { spawn } from "child_process";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import path from "path";
 import os from "os";
+import type { Readable } from "stream";
 import { setOutput } from "@actions/core";
 import { checkOutput } from "./checkOutput";
 import { captureLinuxRunnerCredentials } from "./linuxCredentials";
@@ -312,14 +313,28 @@ export async function runCodexExec({
     await new Promise((resolve, reject) => {
       const child = spawn(program, command, {
         env,
-        stdio: ["pipe", "inherit", "inherit"],
+        stdio: ["pipe", "pipe", "pipe"],
       });
+      child.stdout.pipe(process.stdout, { end: false });
+      child.stderr.pipe(process.stderr, { end: false });
       child.stdin.write(input);
       child.stdin.end();
 
-      child.on("error", reject);
+      const closeOutputStreams = () => {
+        child.stdout.unpipe(process.stdout);
+        child.stderr.unpipe(process.stderr);
+        child.stdout.destroy();
+        child.stderr.destroy();
+      };
 
-      child.on("close", async (code) => {
+      child.once("error", (err) => {
+        closeOutputStreams();
+        reject(err);
+      });
+
+      child.once("exit", async (code) => {
+        await drainOutputStreams([child.stdout, child.stderr]);
+        closeOutputStreams();
         if (code !== 0) {
           reject(new Error(`${program} exited with code ${code}`));
           return;
@@ -336,6 +351,56 @@ export async function runCodexExec({
   } finally {
     await cleanupOutputSchema(resolvedOutputSchema);
   }
+}
+
+const OUTPUT_DRAIN_QUIET_MS = 25;
+const OUTPUT_DRAIN_TIMEOUT_MS = 1_000;
+
+/**
+ * Lets libuv deliver output that was already buffered when the direct child exited. Descendants
+ * may still own the write ends, so EOF cannot be the completion condition. The absolute bound
+ * keeps a descendant that continuously writes (or a blocked runner log destination) from hanging
+ * the action forever.
+ */
+function drainOutputStreams(streams: ReadonlyArray<Readable>): Promise<void> {
+  return new Promise((resolve) => {
+    let quietHandle: NodeJS.Timeout;
+
+    const onData = () => {
+      scheduleQuietCheck();
+    };
+    for (const stream of streams) {
+      stream.on("data", onData);
+    }
+
+    const finish = () => {
+      clearTimeout(quietHandle);
+      clearTimeout(timeoutHandle);
+      for (const stream of streams) {
+        stream.off("data", onData);
+      }
+      resolve();
+    };
+
+    const scheduleQuietCheck = () => {
+      clearTimeout(quietHandle);
+      quietHandle = setTimeout(() => {
+        const streamsAreDrained = streams.every(
+          (stream) =>
+            stream.destroyed ||
+            (stream.readableLength === 0 && stream.readableFlowing !== false)
+        );
+        if (streamsAreDrained) {
+          finish();
+          return;
+        }
+        scheduleQuietCheck();
+      }, OUTPUT_DRAIN_QUIET_MS);
+    };
+
+    const timeoutHandle = setTimeout(finish, OUTPUT_DRAIN_TIMEOUT_MS);
+    scheduleQuietCheck();
+  });
 }
 
 async function finalizeExecution(
