@@ -6,6 +6,22 @@ import { checkOutput } from "./checkOutput";
 
 const MODEL_PROVIDER = "codex-action-responses-proxy";
 
+function hasTopLevelModelProvider(config: string): boolean {
+  for (const line of config.split(/\r?\n/)) {
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      return false;
+    }
+
+    if (/^(?:model_provider|"model_provider"|'model_provider')\s*=/.test(trimmed)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export async function writeProxyConfig(
   codexHome: string,
   port: number,
@@ -20,7 +36,9 @@ export async function writeProxyConfig(
     existing = "";
   }
 
-  const header = `# Added by codex-action.
+  const header = hasTopLevelModelProvider(existing)
+    ? ""
+    : `# Added by codex-action.
 model_provider = "${MODEL_PROVIDER}"
 
 

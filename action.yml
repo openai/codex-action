@@ -351,6 +351,7 @@ runs:
         CODEX_PROMPT_FILE: ${{ inputs['prompt-file'] }}
         CODEX_OUTPUT_FILE: ${{ inputs['output-file'] }}
         CODEX_HOME: ${{ steps.resolve_home.outputs.codex-home }}
+        CODEX_PROXY_PORT: ${{ steps.read_server_info.outputs.port }}
         CODEX_WORKING_DIRECTORY: ${{ inputs['working-directory'] || github.workspace }}
         CODEX_SANDBOX: ${{ inputs.sandbox }}
         CODEX_PERMISSION_PROFILE: ${{ inputs['permission-profile'] }}
@@ -370,6 +371,7 @@ runs:
             --prompt-file "${CODEX_PROMPT_FILE}" \
             --output-file "$CODEX_OUTPUT_FILE" \
             --codex-home "$CODEX_HOME" \
+            --proxy-port "$CODEX_PROXY_PORT" \
             --cd "$CODEX_WORKING_DIRECTORY" \
             --extra-args "$CODEX_ARGS" \
             --output-schema "$CODEX_OUTPUT_SCHEMA" \
