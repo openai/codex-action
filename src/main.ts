@@ -136,6 +136,11 @@ export async function main() {
       "Path to the Codex CLI home directory (where config files are stored)."
     )
     .requiredOption("--cd <DIRECTORY>", "Working directory for Codex")
+    .option(
+      "--proxy-port <port>",
+      "Responses API proxy port.",
+      parseIntStrict
+    )
     .requiredOption(
       "--extra-args <args>",
       "Additional args to pass through to `codex exec` as JSON array or shell string.",
@@ -184,6 +189,7 @@ export async function main() {
         outputSchema: string;
         sandbox: string;
         permissionProfile: string;
+        proxyPort?: number;
         model: string;
         effort: string;
         safetyStrategy: string;
@@ -200,6 +206,7 @@ export async function main() {
           outputSchemaFile,
           sandbox,
           permissionProfile,
+          proxyPort,
           model,
           effort,
           safetyStrategy,
@@ -261,6 +268,7 @@ export async function main() {
           outputSchema: outputSchemaSource,
           sandbox: toOptionalSandboxMode(sandbox),
           permissionProfile: emptyAsNull(permissionProfile),
+          proxyPort: proxyPort ?? null,
           model: emptyAsNull(model),
           effort: emptyAsNull(effort),
           safetyStrategy: toSafetyStrategy(safetyStrategy),
