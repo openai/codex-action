@@ -48,14 +48,8 @@ case "$group_entry" in
 esac
 
 /usr/bin/env -u NODE_OPTIONS "$node" "$action" drop-sudo --root-phase --user "$user" --group sudo --runner-credentials "$runner_credentials" || exit $?
-unsafe_nobody_socket="$(/usr/bin/find /run -type s -uid 0 -gid "$nobody_gid" -perm -020 -print -quit)" || {
-  echo "Linux drop-sudo could not verify the nobody primary group." >&2
-  exit 1
-}
-if [ -n "$unsafe_nobody_socket" ]; then
-  echo "Linux drop-sudo refuses an unsafe nobody primary group." >&2
-  exit 1
-fi
+# The root phase requires nobody's GID and verifies actual socket access with
+# the runner UID, that GID, and no supplementary groups before returning.
 if /usr/bin/sudo -n -u "$user" -- /usr/bin/sudo -n true 2>/dev/null; then
   echo "Expected sudo to be disabled, but sudo succeeded." >&2
   exit 1

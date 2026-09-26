@@ -25,10 +25,11 @@ const canTestSocketAcls =
   canTestLinuxIsolation &&
   spawnSync("/usr/bin/setfacl", ["--version"], { stdio: "ignore" }).status === 0;
 
-function sudo(args) {
+function sudo(args, options = {}) {
   const result = spawnSync("sudo", ["-n", "--", ...args], {
     encoding: "utf8",
     timeout: 30_000,
+    ...options,
   });
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
@@ -49,38 +50,51 @@ function snapshotRootSockets() {
     ? []
     : output.split("\n").map((line) => {
         const [socketPath, uid, gid, mode] = line.split("\t");
-        return { socketPath, uid, gid, mode };
+        const acl = sudo(["/usr/bin/getfacl", "--absolute-names", "--numeric", "--", socketPath]);
+        return { socketPath, uid, gid, mode, acl };
       });
 }
 
 function restoreRootSockets(sockets) {
-  for (const { socketPath, uid, gid, mode } of sockets) {
+  for (const { socketPath, acl } of sockets) {
     const exists = spawnSync("sudo", ["-n", "--", "test", "-S", socketPath]);
     if (exists.status === 0) {
-      sudo(["chown", `${uid}:${gid}`, socketPath]);
-      sudo(["chmod", mode, socketPath]);
+      sudo(["/usr/bin/setfacl", "--restore=-"], { input: `${acl}\n` });
     }
   }
 }
 
-function createRootSocket(socketPath, group, mode) {
-  sudo([
+function createRootSocket(socketPath, group, mode, listen = false) {
+  const pid = sudo([
     process.execPath,
     "-e",
-    'require("node:net").createServer().listen(process.argv[1], () => process.exit(0))',
+    listen
+      ? `const child = require("node:child_process").spawn(process.execPath, ["-e",
+          'require("node:net").createServer(socket => socket.end("connected")).listen(process.argv[1], () => process.send("ready"))', process.argv[1]],
+          { detached: true, stdio: ["ignore", "ignore", "ignore", "ipc"] });
+        child.once("message", () => { console.log(child.pid); child.disconnect(); child.unref(); });`
+      : 'require("node:net").createServer().listen(process.argv[1], () => process.exit(0))',
     socketPath,
   ]);
   sudo(["chown", `0:${group}`, socketPath]);
   sudo(["chmod", mode, socketPath]);
+  return pid;
+}
+
+function connectSocket(socketPath, userId, groupId) {
+  return spawnSync("sudo", ["-n", "--", "/usr/bin/setpriv",
+    `--reuid=${userId}`, `--regid=${groupId}`, "--clear-groups", "--",
+    process.execPath, "-e",
+    'const socket = require("node:net").connect(process.argv[1]); socket.once("error", () => process.exit(1)); socket.once("data", () => process.exit(0));',
+    socketPath,
+  ], { encoding: "utf8", timeout: 5_000 });
 }
 
 test(
   "drop-sudo closes inherited Linux credential and service-socket bypasses",
   { skip: !canTestLinuxIsolation, timeout: 300_000 },
   async (t) => {
-    if (!canTestSocketAcls) {
-      t.diagnostic("setfacl unavailable; named socket ACL coverage skipped");
-    }
+    assert.ok(canTestSocketAcls, "Linux drop-sudo requires the acl package");
 
     for (const [index, scenario] of [
       {
@@ -100,6 +114,7 @@ test(
         verifyForwardedArgs: true,
       },
       { name: "stale live groups cannot retain socket access", staleGroups: true },
+      { name: "empty socket ACL masks fail before irreversible cleanup", emptyAclMask: true },
       {
         name: "permission profiles cannot gain privileges",
         profile: ":workspace",
@@ -174,6 +189,8 @@ test(
         const namedUserAclSocket = `/run/codex-action-${suffix}-acl-user.sock`;
         const fallbackAclSocket = `/run/codex-action-${suffix}-acl-fallback.sock`;
         const staleAclSocket = `/run/codex-action-${suffix}-acl-stale.sock`;
+        const deniedSocket = `/run/codex-action-${suffix}-already-denied.sock`;
+        const shadowSocket = `/run/codex-action-${suffix}-shadow.sock`;
         const liveGroupsPath = path.join(tempDir, "live-groups.txt");
         const originalDockerSocket = statSync(dockerSocket);
         const safeGroup = Number(sudo(["id", "-g", "nobody"]));
@@ -182,10 +199,12 @@ test(
         const groupsCreated = [];
         let userCreated = false;
         let originalSockets = [];
+        let serverPid;
 
         subtest.after(() => {
           sudo(["rm", "-f", sudoersPath]);
           restoreRootSockets(originalSockets);
+          if (serverPid) sudo(["kill", serverPid]);
           sudo([
             "rm",
             "-f",
@@ -195,6 +214,8 @@ test(
             namedUserAclSocket,
             fallbackAclSocket,
             staleAclSocket,
+            deniedSocket,
+            shadowSocket,
           ]);
           if (userCreated) {
             sudo(["userdel", user]);
@@ -253,7 +274,15 @@ test(
         sudo(["install", "--mode=0440", sudoersSource, sudoersPath]);
 
         createRootSocket(serviceSocket, privilegedGroup, "0660");
-        createRootSocket(worldSocket, worldGroup, "0666");
+        serverPid = createRootSocket(worldSocket, worldGroup, "0666", true);
+        const serviceUserId = Number(sudo(["id", "-u", "nobody"]));
+        // The mask deliberately trims this service entry's execute bit. Adding
+        // the runner deny must not recalculate and broaden that existing mask.
+        sudo(["/usr/bin/setfacl", "-n", "-m", `u:${serviceUserId}:rwx,m::rw`, worldSocket]);
+        assert.equal(connectSocket(worldSocket, serviceUserId, safeGroup).status, 0);
+        assert.equal(connectSocket(worldSocket, userId, safeGroup).status, 0);
+        createRootSocket(deniedSocket, worldGroup, "0666");
+        sudo(["/usr/bin/setfacl", "-n", "-m", `u:${userId}:---`, deniedSocket]);
         createRootSocket(fallbackSocket, String(safeGroup), "0660");
         if (canTestSocketAcls) {
           createRootSocket(namedUserAclSocket, worldGroup, "0660");
@@ -273,7 +302,16 @@ test(
           if (scenario.staleGroups) {
             createRootSocket(staleAclSocket, worldGroup, "0660");
             sudo(["/usr/bin/setfacl", "-m", `g:${privilegedGroup}:rw`, staleAclSocket]);
+            createRootSocket(shadowSocket, worldGroup, "0642");
+            // The live/account group union and fallback identity both deny
+            // access, but removing the stale group exposes other-write access.
+            sudo(["/usr/bin/setfacl", "-n", "-m",
+              `g:${privilegedGroup}:---,g:${safeGroup}:---,m::r--`, shadowSocket]);
           }
+        }
+        if (scenario.emptyAclMask) {
+          createRootSocket(shadowSocket, worldGroup, "0602");
+          sudo(["/usr/bin/setfacl", "-n", "-m", `u:${userId}:---,m::---`, shadowSocket]);
         }
         originalSockets = snapshotRootSockets();
         for (const socket of [
@@ -446,8 +484,8 @@ writeFileSync(output, "fake final message\\n");
           ? [
               ...command.slice(0, 4),
               "/bin/sh", "-ec",
-              '/usr/bin/sudo -n /usr/bin/gpasswd -d "$1" "$2"; /usr/bin/id -G > "$3"; shift 3; exec "$@"',
-              "codex-stale-groups", user, privilegedGroup, liveGroupsPath,
+              '/usr/bin/sudo -n /usr/bin/gpasswd -d "$1" "$2"; /usr/bin/id -G > "$3"; /usr/bin/sudo -n -u "$1" -- /usr/bin/test -w "$4"; shift 4; exec "$@"',
+              "codex-stale-groups", user, privilegedGroup, liveGroupsPath, shadowSocket,
               ...command.slice(4),
             ]
           : command;
@@ -476,6 +514,21 @@ writeFileSync(output, "fake final message\\n");
               Number.parseInt(sudo(["stat", "-c", "%a", socketPath]), 8),
               Number.parseInt(mode, 8),
               `${socketPath} changed before argument rejection`
+            );
+          }
+          return;
+        }
+
+        if (scenario.emptyAclMask) {
+          assert.notEqual(result.status, 0);
+          assert.match(result.stderr, /Cannot restrict .*shadow\.sock with an empty ACL mask/);
+          assert.equal(existsSync(capturePath), false);
+          sudo(["/usr/bin/sudo", "-n", "-u", user, "--", "/usr/bin/sudo", "-n", "/usr/bin/true"]);
+          for (const { socketPath, acl } of originalSockets) {
+            assert.equal(
+              sudo(["/usr/bin/getfacl", "--absolute-names", "--numeric", "--", socketPath]),
+              acl,
+              "unsupported ACL masks must fail before socket mutations"
             );
           }
           return;
@@ -584,6 +637,15 @@ writeFileSync(output, "fake final message\\n");
           const staleGid = sudo(["getent", "group", privilegedGroup]).split(":")[2];
           assert.ok(readFileSync(liveGroupsPath, "utf8").trim().split(/\s+/).includes(staleGid));
         }
+        assert.equal(connectSocket(worldSocket, serviceUserId, safeGroup).status, 0,
+          "unrelated system service UID must retain socket access");
+        assert.notEqual(connectSocket(worldSocket, userId, safeGroup).status, 0,
+          "runner UID must not connect after dropping privileges");
+        assert.equal(
+          sudo(["/usr/bin/getfacl", "--absolute-names", "--numeric", "--", deniedSocket]),
+          originalSockets.find(({ socketPath }) => socketPath === deniedSocket).acl,
+          "an existing named deny must not change other socket ACL entries"
+        );
         for (const socket of [
           dockerSocket,
           serviceSocket,
@@ -592,9 +654,17 @@ writeFileSync(output, "fake final message\\n");
           ...(canTestSocketAcls
             ? [namedUserAclSocket, fallbackAclSocket]
             : []),
-          ...(canTestSocketAcls && scenario.staleGroups ? [staleAclSocket] : []),
+          ...(canTestSocketAcls && scenario.staleGroups ? [staleAclSocket, shadowSocket] : []),
         ]) {
-          assert.equal(statSync(socket).mode & 0o077, 0);
+          const original = originalSockets.find(({ socketPath }) => socketPath === socket ||
+            (socket === dockerSocket && socketPath === "/run/docker.sock"));
+          assert.equal(statSync(socket).mode & 0o777, Number.parseInt(original.mode, 8),
+            "socket permissions for other users must be preserved");
+          const updatedAcl = sudo(["/usr/bin/getfacl", "--absolute-names", "--numeric", "--", socket]);
+          for (const entry of original.acl.split("\n")) {
+            if (entry.startsWith("#") || entry.startsWith(`user:${userId}:`)) continue;
+            assert.ok(updatedAcl.split("\n").includes(entry), `ACL entry changed: ${entry}`);
+          }
           const access = spawnSync("sudo", [
             "-n",
             "-u",
