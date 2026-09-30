@@ -12,9 +12,10 @@ async function actionSource() {
 test("background proxy redirects stdout and stderr away from the step stream", async () => {
   const source = await actionSource();
 
-  assert.match(
-    source,
-    /printenv PROXY_API_KEY \| env -u PROXY_API_KEY "\$\{args\[@\]\}"\n\s*\) >>"\$PROXY_LOG_FILE" 2>&1 &/
+  assert.ok(
+    source.includes(
+      'exec env -u PROXY_API_KEY -u NODE_OPTIONS NODE_OPTIONS=--disable-sigusr1 "${args[@]}" <<< "$PROXY_API_KEY"\n        ) >>"$PROXY_LOG_FILE" 2>&1 &'
+    )
   );
   assert.match(
     source,
