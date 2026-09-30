@@ -110,6 +110,7 @@ async function dropSudoWithPrivileges(options: DropSudoOptions): Promise<void> {
   process.env.PATH = "/usr/sbin:/usr/bin:/sbin:/bin";
 
   let changed = false;
+  let originalLinuxGroupIds: Set<number> | undefined;
   let linuxSocketCredentials: LinuxSocketCredentials | undefined;
 
   switch (process.platform) {
@@ -131,28 +132,26 @@ async function dropSudoWithPrivileges(options: DropSudoOptions): Promise<void> {
         parseNumericId(userId.stdout.trim()),
         userGroups.map(({ id }) => id)
       );
+      originalLinuxGroupIds = new Set([
+        linuxSocketCredentials.primaryGroupId,
+        ...linuxSocketCredentials.supplementaryGroupIds,
+      ]);
       const fallbackGroup = await execCommand("id", ["-g", "nobody"], {
         capture: true,
         ignoreFailure: true,
       });
-      if (fallbackGroup.code !== 0) {
-        throw new Error("Linux drop-sudo requires an unprivileged nobody account.");
-      }
-      const fallbackGroupId = parseNumericId(fallbackGroup.stdout.trim());
-      if (fallbackGroupId === 0) {
-        throw new Error("Linux drop-sudo requires a non-root nobody primary group.");
-      }
-      linuxSocketCredentials.fallbackGroupId = fallbackGroupId;
-      try {
-        await execCommand("/usr/bin/setfacl", ["--version"], { capture: true });
-      } catch {
-        throw new Error("Linux drop-sudo requires /usr/bin/setfacl (the acl package).");
+      if (fallbackGroup.code === 0) {
+        const fallbackGroupId = parseNumericId(fallbackGroup.stdout.trim());
+        if (fallbackGroupId !== 0) {
+          originalLinuxGroupIds.add(fallbackGroupId);
+          linuxSocketCredentials.fallbackGroupId = fallbackGroupId;
+        }
       }
       const groupsById = new Map(userGroups.map((group) => [group.id, group]));
       const serviceSockets = await findRootServiceSockets(
         LINUX_RUNTIME_DIRECTORY,
-        linuxSocketCredentials,
-        true
+        originalLinuxGroupIds,
+        linuxSocketCredentials
       );
       const groups = new Set([options.group]);
       for (const socket of serviceSockets) {
@@ -167,7 +166,7 @@ async function dropSudoWithPrivileges(options: DropSudoOptions): Promise<void> {
         }
       }
       for (const socket of serviceSockets) {
-        if (await restrictRootServiceSocket(socket, linuxSocketCredentials)) {
+        if (await restrictRootServiceSocket(socket)) {
           changed = true;
         }
       }
@@ -238,8 +237,11 @@ async function dropSudoWithPrivileges(options: DropSudoOptions): Promise<void> {
     `Groups for ${options.user} after cleanup: ${groupsAfter.stdout.trim()}`
   );
 
-  if (linuxSocketCredentials) {
-    await verifyPrivilegedSocketsRestricted(linuxSocketCredentials);
+  if (originalLinuxGroupIds) {
+    await verifyPrivilegedSocketsRestricted(
+      originalLinuxGroupIds,
+      linuxSocketCredentials
+    );
   }
 }
 
@@ -302,8 +304,9 @@ function parseNumericId(value: string): number {
 
 async function findRootServiceSockets(
   directory: string,
+  groupIds: Set<number>,
   credentials?: LinuxSocketCredentials,
-  includeWorldWritable = false,
+  ignoreUnreadable = false,
   displayDirectory = directory
 ): Promise<Array<RootServiceSocket>> {
   let directoryHandle;
@@ -316,7 +319,7 @@ async function findRootServiceSockets(
     const code = (error as NodeJS.ErrnoException).code;
     if (
       code === "ENOENT" ||
-      (!credentials && (code === "EACCES" || code === "EPERM"))
+      (ignoreUnreadable && (code === "EACCES" || code === "EPERM"))
     ) {
       return [];
     }
@@ -337,8 +340,9 @@ async function findRootServiceSockets(
         sockets.push(
           ...(await findRootServiceSockets(
             entryPath,
+            groupIds,
             credentials,
-            includeWorldWritable,
+            ignoreUnreadable,
             displayPath
           ))
         );
@@ -358,18 +362,21 @@ async function findRootServiceSockets(
         throw error;
       }
 
+      const groupWritable =
+        (stats.mode & 0o020) !== 0 && groupIds.has(stats.gid);
+      const worldWritable = (stats.mode & 0o002) !== 0;
+      const aclWritable =
+        !groupWritable &&
+        !worldWritable &&
+        (stats.mode & 0o020) !== 0 &&
+        stats.isSocket() &&
+        stats.uid === 0 &&
+        (await hasWritableSocketAcl(entryPath, stats, credentials));
       if (
         stats.isSocket() &&
         stats.uid === 0 &&
-        // Extra groups can shadow other-write with a denying group entry.
-        // Restrict all world-writable sockets before removing account groups;
-        // verification below always checks the runner's effective access.
-        ((includeWorldWritable && (stats.mode & 0o002) !== 0) ||
-          (await canWriteRootServiceSocket(entryPath, stats, credentials)))
+        (groupWritable || worldWritable || aclWritable)
       ) {
-        if (includeWorldWritable) {
-          assertSocketAclCanDenyRunner(stats.mode, displayPath);
-        }
         sockets.push({
           path: displayPath,
           groupId: stats.gid,
@@ -385,23 +392,28 @@ async function findRootServiceSockets(
   }
 }
 
-async function canWriteRootServiceSocket(
+async function hasWritableSocketAcl(
   socketPath: string,
   expectedStats: Awaited<ReturnType<typeof fs.lstat>>,
   credentials?: LinuxSocketCredentials
 ): Promise<boolean> {
-  let socketHandle;
-  try {
-    socketHandle = await fs.open(
-      socketPath,
-      LINUX_O_PATH | fsConstants.O_NOFOLLOW
-    );
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return false;
+  if (!credentials) {
+    try {
+      await fs.access(socketPath, fsConstants.W_OK);
+      return true;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "EACCES" || code === "EPERM" || code === "ENOENT") {
+        return false;
+      }
+      throw error;
     }
-    throw error;
   }
+
+  const socketHandle = await fs.open(
+    socketPath,
+    LINUX_O_PATH | fsConstants.O_NOFOLLOW
+  );
   try {
     const stats = await socketHandle.stat();
     if (
@@ -413,90 +425,59 @@ async function canWriteRootServiceSocket(
       throw new Error(`A privileged service socket changed during discovery.`);
     }
 
-    return await isSocketWritable(socketHandle.fd, credentials);
+    const identityGroups = [
+      {
+        primaryGroupId: credentials.primaryGroupId,
+        supplementaryGroupIds: credentials.supplementaryGroupIds,
+      },
+      ...(credentials.fallbackGroupId === undefined
+        ? []
+        : [
+            {
+              primaryGroupId: credentials.fallbackGroupId,
+              supplementaryGroupIds: [],
+            },
+          ]),
+    ];
+
+    for (const identity of identityGroups) {
+      const groupArgument =
+        identity.supplementaryGroupIds.length === 0
+          ? "--clear-groups"
+          : `--groups=${identity.supplementaryGroupIds.join(",")}`;
+      const result = await execCommand(
+        "/usr/bin/setpriv",
+        [
+          `--reuid=${credentials.userId}`,
+          `--regid=${identity.primaryGroupId}`,
+          groupArgument,
+          "--",
+          "/usr/bin/test",
+          "-w",
+          "/proc/self/fd/3",
+        ],
+        {
+          capture: true,
+          ignoreFailure: true,
+          inheritedFileDescriptor: socketHandle.fd,
+        }
+      );
+      if (result.code === 0) {
+        return true;
+      }
+      if (result.code !== 1 || result.stderr.trim().length > 0) {
+        throw new Error(`Could not verify access to a privileged service socket.`);
+      }
+    }
+
+    return false;
   } finally {
     await socketHandle.close();
   }
 }
 
-async function isSocketWritable(
-  fileDescriptor: number,
-  credentials?: LinuxSocketCredentials
-): Promise<boolean> {
-  if (!credentials) {
-    try {
-      await fs.access(`/proc/self/fd/${fileDescriptor}`, fsConstants.W_OK);
-      return true;
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === "EACCES" || code === "EPERM" || code === "ENOENT") {
-        return false;
-      }
-      throw error;
-    }
-  }
-
-  const identityGroups = [
-    {
-      primaryGroupId: credentials.primaryGroupId,
-      supplementaryGroupIds: credentials.supplementaryGroupIds,
-    },
-    ...(credentials.fallbackGroupId === undefined
-      ? []
-      : [
-          {
-            primaryGroupId: credentials.fallbackGroupId,
-            supplementaryGroupIds: [],
-          },
-        ]),
-  ];
-
-  for (const identity of identityGroups) {
-    const groupArgument =
-      identity.supplementaryGroupIds.length === 0
-        ? "--clear-groups"
-        : `--groups=${identity.supplementaryGroupIds.join(",")}`;
-    const result = await execCommand(
-      "/usr/bin/setpriv",
-      [
-        `--reuid=${credentials.userId}`,
-        `--regid=${identity.primaryGroupId}`,
-        groupArgument,
-        "--",
-        "/usr/bin/test",
-        "-w",
-        "/proc/self/fd/3",
-      ],
-      {
-        capture: true,
-        ignoreFailure: true,
-        inheritedFileDescriptor: fileDescriptor,
-      }
-    );
-    if (result.code === 0) {
-      return true;
-    }
-    if (result.code !== 1 || result.stderr.trim().length > 0) {
-      throw new Error(`Could not verify access to a privileged service socket.`);
-    }
-  }
-
-  return false;
-}
-
-function assertSocketAclCanDenyRunner(mode: number, socketPath: string): void {
-  // Linux may skip named ACL entries when all group/mask bits are zero.
-  // Raising the mask could activate unrelated grants, so reject this shape.
-  if ((mode & 0o070) === 0 && (mode & 0o002) !== 0) {
-    throw new Error(
-      `Cannot restrict ${socketPath} with an empty ACL mask while preserving other users' access.`
-    );
-  }
-}
-
 async function restrictRootServiceSocket(
-  socket: RootServiceSocket,
-  credentials: LinuxSocketCredentials
+  socket: RootServiceSocket
 ): Promise<boolean> {
   let socketHandle;
   try {
@@ -522,18 +503,17 @@ async function restrictRootServiceSocket(
     if (stats.dev !== socket.device || stats.ino !== socket.inode) {
       throw new Error(`${socket.path} changed while dropping privileges.`);
     }
-    assertSocketAclCanDenyRunner(stats.mode, socket.path);
-    // A named user entry takes precedence over group and other entries. Keep
-    // the existing mask so access for unrelated system services is unchanged.
-    await execCommand(
-      "/usr/bin/setfacl",
-      ["-n", "-m", `u:${credentials.userId}:---`, "--", "/proc/self/fd/3"],
-      { capture: true, inheritedFileDescriptor: socketHandle.fd }
-    );
-    if (await isSocketWritable(socketHandle.fd, credentials)) {
+    if ((stats.mode & 0o077) === 0) {
+      console.log(`Access to ${socket.path} is already restricted.`);
+      return false;
+    }
+
+    await fs.chmod(`/proc/self/fd/${socketHandle.fd}`, stats.mode & 0o700);
+    const restrictedStats = await socketHandle.stat();
+    if ((restrictedStats.mode & 0o077) !== 0) {
       throw new Error(`Could not restrict access to ${socket.path}.`);
     }
-    console.log(`Restricted access to ${socket.path} for runner UID ${credentials.userId}.`);
+    console.log(`Restricted access to ${socket.path}.`);
     return true;
   } finally {
     await socketHandle.close();
@@ -541,14 +521,37 @@ async function restrictRootServiceSocket(
 }
 
 async function verifyPrivilegedSocketsRestricted(
+  originalGroupIds?: Set<number>,
   credentials?: LinuxSocketCredentials
 ): Promise<void> {
+  const groupIds =
+    originalGroupIds ??
+    new Set(typeof process.getgroups === "function" ? process.getgroups() : []);
+  if (!originalGroupIds && typeof process.getgid === "function") {
+    groupIds.add(process.getgid());
+  }
+
   const sockets = await findRootServiceSockets(
     LINUX_RUNTIME_DIRECTORY,
-    credentials
+    groupIds,
+    credentials,
+    !originalGroupIds
   );
-  if (sockets.length > 0) {
-    throw new Error(`drop-sudo did not revoke access to ${sockets[0].path}.`);
+  for (const socket of sockets) {
+    if (typeof process.getuid === "function" && process.getuid() === 0) {
+      throw new Error(`drop-sudo did not revoke access to ${socket.path}.`);
+    }
+
+    try {
+      await fs.access(socket.path, fsConstants.W_OK);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "EACCES" || code === "EPERM" || code === "ENOENT") {
+        continue;
+      }
+      throw error;
+    }
+    throw new Error(`drop-sudo did not revoke access to ${socket.path}.`);
   }
 }
 

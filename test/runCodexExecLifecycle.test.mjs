@@ -15,9 +15,14 @@ import { fileURLToPath } from "node:url";
 
 const mainPath = fileURLToPath(new URL("../dist/main.js", import.meta.url));
 const finalMessage = "fixture final message\nsecond line\n";
-// The fixture uses exec so its recorded PID is the action's direct child.
+// The fixture uses exec so the action's direct child is the fake Codex process.
 const posixOnly = { skip: process.platform === "win32" };
 const descendantScript = `
+const { existsSync, writeFileSync } = require("node:fs");
+process.once("exit", () => writeFileSync(process.argv[3], ""));
+setInterval(() => {
+  if (existsSync(process.argv[2])) process.exit(0);
+}, 25).unref();
 process.stdout.on("error", () => {});
 process.stderr.on("error", () => {});
 if (process.argv[1] === "true") {
@@ -26,22 +31,30 @@ if (process.argv[1] === "true") {
     console.error("descendant stderr");
   }, 25);
 }
-setTimeout(() => process.exit(0), 10000);
+setTimeout(() => process.exit(0), 15000);
 `;
 
-async function runFixture(body, { timeoutMs = 4000, missingInterpreter = false } = {}) {
+async function runFixture(body, { timeoutMs = 8000, missingInterpreter = false } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), "codex-action-lifecycle-"));
   const outputPath = path.join(dir, "output.txt");
   const githubOutputPath = path.join(dir, "github-output.txt");
-  const fakePidPath = path.join(dir, "codex.pid");
-  const descendantPidPath = path.join(dir, "descendant.pid");
+  const cleanupPath = path.join(dir, "cleanup");
+  const fakeStartedPath = path.join(dir, "codex-started");
+  const fakeStoppedPath = path.join(dir, "codex-stopped");
+  const descendantStartedPath = path.join(dir, "descendant-started");
+  const descendantStoppedPath = path.join(dir, "descendant-stopped");
   const fakePath = path.join(dir, "codex.mjs");
   writeFileSync(githubOutputPath, "");
   writeFileSync(
     fakePath,
     `import { spawn } from "node:child_process";
-import { writeFileSync } from "node:fs";
-writeFileSync(${JSON.stringify(fakePidPath)}, String(process.pid));
+import { existsSync, writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(fakeStartedPath)}, "");
+function markStopped() { writeFileSync(${JSON.stringify(fakeStoppedPath)}, ""); }
+process.once("exit", markStopped);
+setInterval(() => {
+  if (existsSync(${JSON.stringify(cleanupPath)})) process.exit(0);
+}, 25).unref();
 process.stdin.resume();
 await new Promise((resolve) => process.stdin.on("end", resolve));
 const args = process.argv.slice(2);
@@ -49,10 +62,10 @@ writeFileSync(args[args.indexOf("--output-last-message") + 1], ${JSON.stringify(
 console.log("fixture stdout");
 console.error("fixture stderr");
 function retainPipes(emit) {
-  const descendant = spawn(process.execPath, ["-e", ${JSON.stringify(descendantScript)}, String(emit)], {
+  const descendant = spawn(process.execPath, ["-e", ${JSON.stringify(descendantScript)}, String(emit), ${JSON.stringify(cleanupPath)}, ${JSON.stringify(descendantStoppedPath)}], {
     stdio: ["ignore", "inherit", "inherit"],
   });
-  writeFileSync(${JSON.stringify(descendantPidPath)}, String(descendant.pid));
+  writeFileSync(${JSON.stringify(descendantStartedPath)}, "");
   descendant.unref();
 }
 ${body}\n`,
@@ -121,22 +134,27 @@ ${body}\n`,
     };
   } finally {
     clearTimeout(timer);
-    // Kill only PIDs recorded by this fixture, including after a failed assertion or timeout.
-    for (const pidPath of [descendantPidPath, fakePidPath]) {
-      if (!existsSync(pidPath)) continue;
-      try {
-        process.kill(Number(readFileSync(pidPath, "utf8")), "SIGKILL");
-      } catch (error) {
-        if (error.code !== "ESRCH") throw error;
-      }
-    }
+    // Ask fixture processes to exit without signaling a PID that may have been reused.
+    writeFileSync(cleanupPath, "");
     if (action) {
-      action.kill("SIGKILL");
+      if (action.exitCode === null && action.signalCode === null) {
+        action.kill("SIGKILL");
+      }
       action.stdout.destroy();
       action.stderr.destroy();
-      await closed;
+      await closed?.catch(() => {});
     }
+    const waitForStop = async (startedPath, stoppedPath) => {
+      if (!existsSync(startedPath)) return true;
+      for (let i = 0; i < 120 && !existsSync(stoppedPath); i++) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      return existsSync(stoppedPath);
+    };
+    const fakeStopped = await waitForStop(fakeStartedPath, fakeStoppedPath);
+    const descendantStopped = await waitForStop(descendantStartedPath, descendantStoppedPath);
     rmSync(dir, { recursive: true, force: true });
+    assert.ok(fakeStopped && descendantStopped, "fixture processes must stop during cleanup");
   }
 }
 
@@ -153,7 +171,7 @@ test("finishes when an exited Codex leaves a quiet descendant holding log pipes"
   assertFinalMessage(result);
   assert.match(result.stdout, /fixture stdout\n/);
   assert.match(result.stderr, /fixture stderr\n/);
-  assert.match(result.stdout, /::warning::Codex exited, but its output streams remained open/);
+  assert.match(result.stdout, /::warning::Codex exited, but its output streams remained open after 5 seconds/);
 });
 
 test("keeps shutdown bounded while a descendant continues writing logs", posixOnly, async () => {
@@ -161,7 +179,7 @@ test("keeps shutdown bounded while a descendant continues writing logs", posixOn
   assertFinalMessage(result);
   assert.match(result.stdout, /descendant stdout/);
   assert.match(result.stderr, /descendant stderr/);
-  assert.match(result.stdout, /::warning::Codex exited, but its output streams remained open/);
+  assert.match(result.stdout, /::warning::Codex exited, but its output streams remained open after 5 seconds/);
 });
 
 test("preserves a failing Codex exit even when a final message and retained pipes exist", posixOnly, async () => {
@@ -196,7 +214,7 @@ test("preserves complete large final logs when a descendant keeps the pipes open
   assertFinalMessage(result);
   assert.ok(result.stdout.includes("fixture stdout\n" + stdout));
   assert.equal(result.stderr, "fixture stderr\n" + stderr);
-  assert.match(result.stdout, /::warning::Codex exited, but its output streams remained open/);
+  assert.match(result.stdout, /::warning::Codex exited, but its output streams remained open after 5 seconds/);
 });
 
 test("does not publish success while Codex is still running after writing its final message", posixOnly, async () => {
@@ -207,7 +225,8 @@ test("does not publish success while Codex is still running after writing its fi
 });
 
 test("reports signal termination even when a descendant retains log pipes", posixOnly, async () => {
-  const result = await runFixture('retainPipes(false); process.kill(process.pid, "SIGTERM");');
+  // Signal termination does not run the fake's exit hook.
+  const result = await runFixture('retainPipes(false); markStopped(); process.kill(process.pid, "SIGTERM");');
   assert.equal(result.timedOut, false);
   assert.notEqual(result.code, 0);
   assert.match(result.stderr, /exited with signal SIGTERM/);

@@ -7,7 +7,7 @@ import { checkOutput } from "./checkOutput";
 import { captureLinuxRunnerCredentials } from "./linuxCredentials";
 
 // Bound output draining after process exit: a descendant may retain the write ends.
-const OUTPUT_DRAIN_TIMEOUT_MS = 1_000;
+const OUTPUT_DRAIN_TIMEOUT_MS = 5_000;
 
 const LINUX_DROP_SUDO_SCRIPT = String.raw`
 node="$1"
@@ -48,8 +48,14 @@ case "$group_entry" in
 esac
 
 /usr/bin/env -u NODE_OPTIONS "$node" "$action" drop-sudo --root-phase --user "$user" --group sudo --runner-credentials "$runner_credentials" || exit $?
-# The root phase requires nobody's GID and verifies actual socket access with
-# the runner UID, that GID, and no supplementary groups before returning.
+unsafe_nobody_socket="$(/usr/bin/find /run -type s -uid 0 -gid "$nobody_gid" -perm -020 -print -quit)" || {
+  echo "Linux drop-sudo could not verify the nobody primary group." >&2
+  exit 1
+}
+if [ -n "$unsafe_nobody_socket" ]; then
+  echo "Linux drop-sudo refuses an unsafe nobody primary group." >&2
+  exit 1
+fi
 if /usr/bin/sudo -n -u "$user" -- /usr/bin/sudo -n true 2>/dev/null; then
   echo "Expected sudo to be disabled, but sudo succeeded." >&2
   exit 1
@@ -335,7 +341,7 @@ export async function runCodexExec({
         // continues writing. Never infer process completion from the result file.
         outputDrainTimer = setTimeout(() => {
           warning(
-            "Codex exited, but its output streams remained open after 1 second. " +
+            "Codex exited, but its output streams remained open after 5 seconds. " +
               "Closing the streams to finish the action; remaining log output may be lost."
           );
           closeOutputStreams();
