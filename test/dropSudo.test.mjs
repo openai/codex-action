@@ -99,6 +99,10 @@ test(
         ],
         verifyForwardedArgs: true,
       },
+      {
+        name: "finishes after Codex exits while a descendant retains output",
+        retainOutput: true,
+      },
       { name: "stale live groups cannot retain socket access", staleGroups: true },
       {
         name: "permission profiles cannot gain privileges",
@@ -165,6 +169,8 @@ test(
         );
         const capturePath = path.join(tempDir, "capture.json");
         const outputPath = path.join(tempDir, "output.md");
+        const githubOutputPath = path.join(tempDir, "github-output");
+        const descendantPidPath = path.join(tempDir, "descendant.pid");
         const codexPath = path.join(tempDir, "codex");
         const bundledActionPath = path.join(tempDir, "main.js");
         const sudoersPath = `/etc/sudoers.d/${user}`;
@@ -184,6 +190,12 @@ test(
         let originalSockets = [];
 
         subtest.after(() => {
+          if (userCreated && existsSync(descendantPidPath)) {
+            const pid = readFileSync(descendantPidPath, "utf8").trim();
+            if (/^[1-9]\d*$/.test(pid)) {
+              spawnSync("sudo", ["-n", "-u", user, "--", "/bin/kill", "-KILL", pid]);
+            }
+          }
           sudo(["rm", "-f", sudoersPath]);
           restoreRootSockets(originalSockets);
           sudo([
@@ -327,7 +339,7 @@ test(
           codexPath,
           `#!${process.execPath}
 const { accessSync, constants, readFileSync, writeFileSync } = require("node:fs");
-const { spawnSync } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 const args = process.argv.slice(2);
 const output = args[args.indexOf("--output-last-message") + 1];
 function canWrite(socket) {
@@ -384,9 +396,19 @@ writeFileSync(process.env.CODEX_CAPTURE_PATH, JSON.stringify({
   prompt: readFileSync(0, "utf8"),
 }));
 writeFileSync(output, "fake final message\\n");
+${scenario.retainOutput ? `
+console.log("fixture stdout");
+console.error("fixture stderr");
+const descendant = spawn(process.execPath, ["-e", "setTimeout(() => {}, 20000)"], {
+  stdio: ["ignore", "inherit", "inherit"],
+});
+writeFileSync(${JSON.stringify(descendantPidPath)}, String(descendant.pid));
+descendant.unref();
+` : ""}
 `
         );
         chmodSync(codexPath, 0o755);
+        if (scenario.retainOutput) writeFileSync(githubOutputPath, "");
         chmodSync(tempDir, 0o711);
         sudo(["chown", "-R", user, tempDir]);
 
@@ -399,6 +421,7 @@ writeFileSync(output, "fake final message\\n");
           `HOME=${tempDir}`,
           `PATH=${tempDir}:${process.env.PATH ?? ""}`,
           "NODE_OPTIONS=--disable-sigusr1",
+          ...(scenario.retainOutput ? [`GITHUB_OUTPUT=${githubOutputPath}`] : []),
           `CODEX_CAPTURE_PATH=${capturePath}`,
           `CODEX_SERVICE_SOCKET=${serviceSocket}`,
           `CODEX_WORLD_SOCKET=${worldSocket}`,
@@ -543,6 +566,21 @@ writeFileSync(output, "fake final message\\n");
           );
         }
         assert.equal(readFileSync(outputPath, "utf8"), "fake final message\n");
+        if (scenario.retainOutput) {
+          assert.match(result.stdout, /fixture stdout\n/);
+          assert.match(result.stderr, /fixture stderr\n/);
+          assert.match(result.stdout, /::warning::Codex exited, but its output streams remained open/);
+          const githubOutput = readFileSync(githubOutputPath, "utf8");
+          const match = githubOutput.match(/^final-message<<([^\r\n]+)\r?\n([\s\S]*)\r?\n\1\r?\n$/);
+          assert.ok(match, "expected exactly one final-message GitHub output");
+          assert.equal(match[2], "fake final message\n");
+          const pid = readFileSync(descendantPidPath, "utf8").trim();
+          assert.match(pid, /^[1-9]\d*$/);
+          const descendant = spawnSync(
+            "sudo", ["-n", "-u", user, "--", "/bin/kill", "-0", pid]
+          );
+          assert.equal(descendant.status, 0, "action must finish before the descendant exits");
+        }
 
         if (
           scenario.replacementGroupSudoGrant ||

@@ -2,9 +2,13 @@ import { spawn } from "child_process";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import path from "path";
 import os from "os";
-import { setOutput } from "@actions/core";
+import { setOutput, warning } from "@actions/core";
 import { checkOutput } from "./checkOutput";
 import { captureLinuxRunnerCredentials } from "./linuxCredentials";
+import { ExecDiagnostics, startExecDiagnostics } from "./execDiagnostics";
+
+// Bound output draining after process exit: a descendant may retain the write ends.
+const OUTPUT_DRAIN_TIMEOUT_MS = 5_000;
 
 const LINUX_DROP_SUDO_SCRIPT = String.raw`
 node="$1"
@@ -133,6 +137,7 @@ export async function runCodexExec({
   codexUser,
   sandbox,
   permissionProfile,
+  diagnostics = false,
 }: {
   prompt: PromptSource;
   codexHome: string | null;
@@ -146,6 +151,7 @@ export async function runCodexExec({
   codexUser: string | null;
   sandbox: SandboxMode | null;
   permissionProfile: string | null;
+  diagnostics?: boolean;
 }): Promise<void> {
   let input: string;
   switch (prompt.type) {
@@ -308,41 +314,95 @@ export async function runCodexExec({
       .map((a) => JSON.stringify(a))
       .join(" ")}`
   );
+  const diagnostic = diagnostics ? startExecDiagnostics(safetyStrategy) : undefined;
   try {
     await new Promise((resolve, reject) => {
       const child = spawn(program, command, {
         env,
-        stdio: ["pipe", "inherit", "inherit"],
+        // Descendants must not inherit the runner's log transport directly.
+        stdio: ["pipe", "pipe", "pipe"],
       });
-      child.stdin.write(input);
-      child.stdin.end();
+      child.stdout.pipe(process.stdout, { end: false });
+      child.stderr.pipe(process.stderr, { end: false });
+      child.once("spawn", () => diagnostic?.spawned(child.pid));
+      if (diagnostic) {
+        child.stdout.on("data", (data: Buffer) => diagnostic.output("stdout", data.length));
+        child.stderr.on("data", (data: Buffer) => diagnostic.output("stderr", data.length));
+      }
 
-      child.on("error", reject);
+      let outputDrainTimer: NodeJS.Timeout | undefined;
+      const closeOutputStreams = () => {
+        clearTimeout(outputDrainTimer);
+        child.stdout.unpipe(process.stdout);
+        child.stderr.unpipe(process.stderr);
+        child.stdout.destroy();
+        child.stderr.destroy();
+      };
 
-      child.on("close", async (code) => {
+      child.once("error", (error) => {
+        closeOutputStreams();
+        reject(error);
+      });
+      child.once("exit", (code, signal) => {
+        diagnostic?.phase("draining", { code, signal });
+        child.stdin.destroy();
+        // Normally `close` follows after all buffered output has drained. Bound
+        // that wait when a surviving descendant holds a pipe open, even if it
+        // continues writing. Never infer process completion from the result file.
+        outputDrainTimer = setTimeout(() => {
+          diagnostic?.phase("closing-retained-streams", {
+            stdoutEnded: child.stdout.readableEnded, stderrEnded: child.stderr.readableEnded,
+          });
+          warning(
+            "Codex exited, but its output streams remained open after 5 seconds. " +
+              "Closing the streams to finish the action; remaining log output may be lost."
+          );
+          closeOutputStreams();
+        }, OUTPUT_DRAIN_TIMEOUT_MS);
+      });
+
+      child.once("close", async (code, signal) => {
+        diagnostic?.phase("streams-closed", { code, signal });
+        closeOutputStreams();
         if (code !== 0) {
-          reject(new Error(`${program} exited with code ${code}`));
+          reject(
+            new Error(
+              `${program} exited with ${signal ? `signal ${signal}` : `code ${code}`}`
+            )
+          );
           return;
         }
 
         try {
-          await finalizeExecution(outputFile, runAsUser);
+          await finalizeExecution(outputFile, runAsUser, diagnostic);
           resolve(undefined);
         } catch (err) {
           reject(err);
         }
       });
+      child.stdin.end(input);
     });
+  } catch (error) {
+    diagnostic?.phase("failed");
+    throw error;
   } finally {
-    await cleanupOutputSchema(resolvedOutputSchema);
+    diagnostic?.phase("cleaning-schema");
+    try {
+      await cleanupOutputSchema(resolvedOutputSchema);
+      diagnostic?.phase("cleanup-complete");
+    } finally {
+      diagnostic?.stop();
+    }
   }
 }
 
 async function finalizeExecution(
   outputFile: OutputFile,
-  runAsUser: string | null
+  runAsUser: string | null,
+  diagnostic?: ExecDiagnostics
 ): Promise<void> {
   try {
+    diagnostic?.phase("reading-output");
     let lastMessage: string;
     if (runAsUser == null) {
       lastMessage = await readFile(outputFile.file, "utf8");
@@ -355,8 +415,11 @@ async function finalizeExecution(
         outputFile.file,
       ]);
     }
+    diagnostic?.phase("publishing-output");
     setOutput("final-message", lastMessage);
+    diagnostic?.phase("output-published");
   } finally {
+    diagnostic?.phase("cleaning-output");
     await cleanupTempOutput(outputFile, runAsUser);
   }
 }
