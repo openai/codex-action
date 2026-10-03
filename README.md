@@ -114,6 +114,7 @@ jobs:
 | `output-schema-file`     | Schema file forwarded to `codex exec --output-schema`. Leave empty to skip passing the option.                                                 | `""`        |
 | `model`                  | Model the agent should use. Leave empty to let Codex pick its default.                                                                         | `""`        |
 | `effort`                 | Reasoning effort the agent should use. Leave empty to let Codex pick its default.                                                              | `""`        |
+| `diagnostics`            | Log CLI version, execution stages, and periodic process diagnostics for investigating hangs.                                                  | `false`     |
 | `codex-home`             | Directory to use as the Codex CLI home (config/cache). Uses the CLI default when empty.                                                        | `""`        |
 | `safety-strategy`        | Controls how the action restricts Codex privileges. See [Safety strategy](#safety-strategy).                                                   | `drop-sudo` |
 | `codex-user`             | Username to run Codex as when `safety-strategy` is `unprivileged-user`.                                                                        | `""`        |
@@ -197,6 +198,20 @@ jobs:
 ```
 
 ## Additional tips
+
+To investigate a run that stops making progress, set `diagnostics: true`. The install step prints
+the CLI version. The run step logs process exit, stream draining, output reading/publication, and
+cleanup, plus a heartbeat every 30 seconds with elapsed time and stdout/stderr activity. On Linux,
+bounded snapshots include the action's process tree, thread wait locations, user/group IDs,
+effective capabilities, and stdin/stdout/stderr pipe IDs. Previously observed descendants remain
+in snapshots if they are reparented. Inaccessible or truncated process details are identified.
+
+Diagnostic records start with `[codex-action diagnostics]`. They do not include prompts, final
+message contents, environment dumps, command arguments, or file paths. Ordinary Codex logs are
+unchanged. Diagnostics are best effort and do not kill processes or turn a written result into a
+successful run. A `running` heartbeat after the final answer means the launched process has not
+exited; `draining` means it exited but its streams have not closed. Later phase markers locate
+waits while reading or publishing the result and cleaning up.
 
 - Run this action after `actions/checkout@v5` so Codex has access to your repository contents.
 - To use a non-default Responses endpoint (for example Azure OpenAI), set `responses-api-endpoint` to the provider's URL while keeping `openai-api-key` populated; the proxy will still send `Authorization: Bearer <key>` upstream.
