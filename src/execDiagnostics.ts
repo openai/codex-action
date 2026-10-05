@@ -125,12 +125,15 @@ async function collectProcesses(root: number, known: Map<number, string>, active
     if (!active()) return null;
     const stdio = await Promise.all([0, 1, 2].map((fd) => pipeTarget(entry.pid, fd)));
     if (!active()) return null;
+    const executable = await readlink(`${base}/exe`).catch(() => "");
+    const name = executable.split("/").pop()?.replace(/ \(deleted\)$/, "") || entry.name;
+    if (!active()) return null;
     const stat = await procText(`${base}/stat`);
     if (stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19] !== entry.start) return null;
     return {
       pid: entry.pid, ppid: entry.ppid,
-      name: ["node", "nodejs", "codex", "sudo", "sh", "bash", "dash", "setpriv", "env", "npm"].includes(entry.name)
-        ? entry.name : "other",
+      name: ["node", "nodejs", "codex", "sudo", "sh", "bash", "dash", "setpriv", "env", "npm"].includes(name)
+        ? name : "other",
       state: entry.state,
       uid: status.match(/^Uid:\s+(\d+)/m)?.[1],
       gid: status.match(/^Gid:\s+(\d+)/m)?.[1],

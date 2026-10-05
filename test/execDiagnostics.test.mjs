@@ -112,7 +112,8 @@ test("process snapshots scope descendants, retain reparented identities, and red
         const [parent, start] = processes.get(pid);
         const fields = Array(20).fill("0");
         [fields[0], fields[1], fields[19]] = ["S", String(parent), start];
-        return `${pid} (worker (${pid})) ${fields.join(" ")}`;
+        const name = pid === 100 ? "MainThread" : pid === 102 ? "sudo" : `worker (${pid})`;
+        return `${pid} (${name}) ${fields.join(" ")}`;
       }
       assert.ok(pid >= 100 && pid <= 102, "unrelated process details must not be read");
       if (pid === 101 && reuseDuringDetails) processes.set(101, [1, "99"]);
@@ -121,7 +122,11 @@ test("process snapshots scope descendants, retain reparented identities, and red
     },
     async readlink(file) {
       reads.push(file);
-      assert.match(file, /^\/proc\/10[012]\/fd\/[012]$/);
+      assert.match(file, /^\/proc\/10[012]\/(exe|fd\/[012])$/);
+      if (file.endsWith("/exe")) {
+        if (file === "/proc/102/exe") throw new Error("permission denied");
+        return file === "/proc/100/exe" ? "/opt/node/bin/node" : "/private/secret-executable";
+      }
       return file.endsWith("/0") ? "/dev/null" : file.endsWith("/1") ? "pipe:[42]" : "/private/credential-file";
     },
   });
@@ -130,14 +135,14 @@ test("process snapshots scope descendants, retain reparented identities, and red
   assert.equal(first.processes.map(({ pid }) => pid).join(), "100,101,102");
   assert.deepEqual(Array.from(first.processes[0].stdio), ["/dev/null", "pipe:[42]", "file-or-device"]);
   assert.equal(first.processes[0].noNewPrivs, "1");
-  assert.equal(first.processes[0].name, "other", "arbitrary process names must not be logged");
+  assert.equal(first.processes.map(({ name }) => name).join(), "node,other,sudo");
   assert.equal(first.processes[1].threads.length, 0);
-  assert.ok(!JSON.stringify(first).includes("credential-file"));
+  assert.doesNotMatch(JSON.stringify(first), /credential-file|\/private\/|\/opt\/node\//);
   processes.set(101, [1, "11"]);
   assert.equal((await f.collectProcesses(100, known)).processes.length, 3);
   reuseDuringDetails = true;
   processes.delete(102);
   assert.equal((await f.collectProcesses(100, known)).processes.map(({ pid }) => pid).join(), "100");
   assert.equal((await f.collectProcesses(100, known)).processes.map(({ pid }) => pid).join(), "100");
-  for (const file of reads) assert.match(file, /^\/proc(?:\/\d+\/stat|\/10[012]\/(?:status|task(?:\/\d+\/wchan)?|fd\/[012]))?$/);
+  for (const file of reads) assert.match(file, /^\/proc(?:\/\d+\/stat|\/10[012]\/(?:status|task(?:\/\d+\/wchan)?|exe|fd\/[012]))?$/);
 });
