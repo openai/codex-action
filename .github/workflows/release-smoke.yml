@@ -22,7 +22,7 @@ jobs:
           getent ahostsv4 github.com
 
       - name: Set up the released action
-        uses: openai/codex-action@v1
+        uses: openai/codex-action@bdf19a4a223ec2549a3e2274a0cf61556bc07675 # v1.13
         with:
           # A synthetic key exercises setup without making model API calls.
           openai-api-key: release-smoke-placeholder-no-api-calls
@@ -44,11 +44,14 @@ jobs:
           fi
           getent ahostsv4 github.com
           node --input-type=module <<'JS'
-          const response = await fetch('https://api.github.com/repos/openai/codex-action/commits/v1');
-          if (!response.ok) throw new Error(`GitHub returned ${response.status}`);
-          const commit = await response.json();
-          if (commit.sha !== process.env.EXPECTED_RELEASE_SHA) {
-            throw new Error(`Unexpected v1 commit: ${commit.sha}`);
+          for (const tag of ['v1', 'v1.13']) {
+            const response = await fetch(`https://api.github.com/repos/openai/codex-action/commits/${tag}`);
+            if (!response.ok) throw new Error(`GitHub returned ${response.status}`);
+            const commit = await response.json();
+            if (commit.sha !== process.env.EXPECTED_RELEASE_SHA) {
+              throw new Error(`Unexpected ${tag} commit: ${commit.sha}`);
+            }
+            console.log(`Verified ${tag} at ${commit.sha}.`);
           }
-          console.log(`Verified v1 at ${commit.sha}; runner connectivity is healthy.`);
+          console.log('Runner connectivity is healthy.');
           JS
