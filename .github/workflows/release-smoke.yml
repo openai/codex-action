@@ -1,0 +1,54 @@
+name: Smoke test v1.13 release
+
+on:
+  push:
+    branches:
+      - codex/viyatb/release-v1.13-smoke
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check runner prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -n true
+          test -x /usr/bin/setfacl
+          getent ahostsv4 github.com
+
+      - name: Set up the released action
+        uses: openai/codex-action@v1
+        with:
+          # A synthetic key exercises setup without making model API calls.
+          openai-api-key: release-smoke-placeholder-no-api-calls
+          safety-strategy: drop-sudo
+
+      - name: Verify privileges and connectivity after setup
+        shell: bash
+        env:
+          EXPECTED_RELEASE_SHA: bdf19a4a223ec2549a3e2274a0cf61556bc07675
+        run: |
+          set -euo pipefail
+          if sudo -n true 2>/dev/null; then
+            echo 'sudo access was not removed' >&2
+            exit 1
+          fi
+          if [ -S /run/dbus/system_bus_socket ] && [ -w /run/dbus/system_bus_socket ]; then
+            echo 'runner still has D-Bus socket write access' >&2
+            exit 1
+          fi
+          getent ahostsv4 github.com
+          node --input-type=module <<'JS'
+          const response = await fetch('https://api.github.com/repos/openai/codex-action/commits/v1');
+          if (!response.ok) throw new Error(`GitHub returned ${response.status}`);
+          const commit = await response.json();
+          if (commit.sha !== process.env.EXPECTED_RELEASE_SHA) {
+            throw new Error(`Unexpected v1 commit: ${commit.sha}`);
+          }
+          console.log(`Verified v1 at ${commit.sha}; runner connectivity is healthy.`);
+          JS
