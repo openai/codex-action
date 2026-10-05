@@ -164,7 +164,6 @@ export async function main() {
     )
     .requiredOption("--model <model>", "Model the agent should use")
     .requiredOption("--effort <effort>", "Reasoning effort the agent should use")
-    .option("--diagnostics <boolean>", "Log process lifecycle diagnostics", parseBoolean, false)
     .requiredOption(
       "--safety-strategy <strategy>",
       "Safety strategy to use. One of 'drop-sudo', 'read-only', 'unprivileged-user', or 'unsafe'."
@@ -189,7 +188,6 @@ export async function main() {
         effort: string;
         safetyStrategy: string;
         codexUser: string;
-        diagnostics: boolean;
       }) => {
         const {
           prompt,
@@ -267,7 +265,6 @@ export async function main() {
           effort: emptyAsNull(effort),
           safetyStrategy: toSafetyStrategy(safetyStrategy),
           codexUser: emptyAsNull(codexUser),
-          diagnostics: options.diagnostics,
         });
       }
     );

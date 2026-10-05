@@ -5,7 +5,6 @@ import os from "os";
 import { setOutput, warning } from "@actions/core";
 import { checkOutput } from "./checkOutput";
 import { captureLinuxRunnerCredentials } from "./linuxCredentials";
-import { ExecDiagnostics, startExecDiagnostics } from "./execDiagnostics";
 
 // Bound output draining after process exit: a descendant may retain the write ends.
 const OUTPUT_DRAIN_TIMEOUT_MS = 5_000;
@@ -137,7 +136,6 @@ export async function runCodexExec({
   codexUser,
   sandbox,
   permissionProfile,
-  diagnostics = false,
 }: {
   prompt: PromptSource;
   codexHome: string | null;
@@ -151,7 +149,6 @@ export async function runCodexExec({
   codexUser: string | null;
   sandbox: SandboxMode | null;
   permissionProfile: string | null;
-  diagnostics?: boolean;
 }): Promise<void> {
   let input: string;
   switch (prompt.type) {
@@ -314,7 +311,6 @@ export async function runCodexExec({
       .map((a) => JSON.stringify(a))
       .join(" ")}`
   );
-  const diagnostic = diagnostics ? startExecDiagnostics(safetyStrategy) : undefined;
   try {
     await new Promise((resolve, reject) => {
       const child = spawn(program, command, {
@@ -324,11 +320,6 @@ export async function runCodexExec({
       });
       child.stdout.pipe(process.stdout, { end: false });
       child.stderr.pipe(process.stderr, { end: false });
-      child.once("spawn", () => diagnostic?.spawned(child.pid));
-      if (diagnostic) {
-        child.stdout.on("data", (data: Buffer) => diagnostic.output("stdout", data.length));
-        child.stderr.on("data", (data: Buffer) => diagnostic.output("stderr", data.length));
-      }
 
       let outputDrainTimer: NodeJS.Timeout | undefined;
       const closeOutputStreams = () => {
@@ -343,16 +334,12 @@ export async function runCodexExec({
         closeOutputStreams();
         reject(error);
       });
-      child.once("exit", (code, signal) => {
-        diagnostic?.phase("draining", { code, signal });
+      child.once("exit", () => {
         child.stdin.destroy();
         // Normally `close` follows after all buffered output has drained. Bound
         // that wait when a surviving descendant holds a pipe open, even if it
         // continues writing. Never infer process completion from the result file.
         outputDrainTimer = setTimeout(() => {
-          diagnostic?.phase("closing-retained-streams", {
-            stdoutEnded: child.stdout.readableEnded, stderrEnded: child.stderr.readableEnded,
-          });
           warning(
             "Codex exited, but its output streams remained open after 5 seconds. " +
               "Closing the streams to finish the action; remaining log output may be lost."
@@ -362,7 +349,6 @@ export async function runCodexExec({
       });
 
       child.once("close", async (code, signal) => {
-        diagnostic?.phase("streams-closed", { code, signal });
         closeOutputStreams();
         if (code !== 0) {
           reject(
@@ -374,7 +360,7 @@ export async function runCodexExec({
         }
 
         try {
-          await finalizeExecution(outputFile, runAsUser, diagnostic);
+          await finalizeExecution(outputFile, runAsUser);
           resolve(undefined);
         } catch (err) {
           reject(err);
@@ -382,27 +368,16 @@ export async function runCodexExec({
       });
       child.stdin.end(input);
     });
-  } catch (error) {
-    diagnostic?.phase("failed");
-    throw error;
   } finally {
-    diagnostic?.phase("cleaning-schema");
-    try {
-      await cleanupOutputSchema(resolvedOutputSchema);
-      diagnostic?.phase("cleanup-complete");
-    } finally {
-      diagnostic?.stop();
-    }
+    await cleanupOutputSchema(resolvedOutputSchema);
   }
 }
 
 async function finalizeExecution(
   outputFile: OutputFile,
-  runAsUser: string | null,
-  diagnostic?: ExecDiagnostics
+  runAsUser: string | null
 ): Promise<void> {
   try {
-    diagnostic?.phase("reading-output");
     let lastMessage: string;
     if (runAsUser == null) {
       lastMessage = await readFile(outputFile.file, "utf8");
@@ -415,11 +390,8 @@ async function finalizeExecution(
         outputFile.file,
       ]);
     }
-    diagnostic?.phase("publishing-output");
     setOutput("final-message", lastMessage);
-    diagnostic?.phase("output-published");
   } finally {
-    diagnostic?.phase("cleaning-output");
     await cleanupTempOutput(outputFile, runAsUser);
   }
 }

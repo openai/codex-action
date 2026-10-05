@@ -34,7 +34,7 @@ if (process.argv[1] === "true") {
 setTimeout(() => process.exit(0), 15000);
 `;
 
-async function runFixture(body, { timeoutMs = 8000, missingInterpreter = false, diagnostics = false } = {}) {
+async function runFixture(body, { timeoutMs = 8000, missingInterpreter = false } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), "codex-action-lifecycle-"));
   const outputPath = path.join(dir, "output.txt");
   const githubOutputPath = path.join(dir, "github-output.txt");
@@ -101,7 +101,6 @@ ${body}\n`,
         "--effort", "",
         "--safety-strategy", "unsafe",
         "--codex-user", "",
-        ...(diagnostics ? ["--diagnostics", "true"] : []),
       ],
       {
         env: {
@@ -128,10 +127,8 @@ ${body}\n`,
     ]);
     return {
       ...result,
-      stdout: stdout.replace(/\[codex-action diagnostics\] .*\n/g, ""),
+      stdout,
       stderr,
-      diagnostics: [...stdout.matchAll(/\[codex-action diagnostics\] (.*)\n/g)]
-        .map(([, json]) => JSON.parse(json)),
       output: existsSync(outputPath) ? readFileSync(outputPath, "utf8") : null,
       githubOutput: readFileSync(githubOutputPath, "utf8"),
     };
@@ -167,21 +164,10 @@ function assertFinalMessage(result) {
   const output = result.githubOutput.match(/^final-message<<([^\r\n]+)\r?\n([\s\S]*)\r?\n\1\r?\n$/);
   assert.ok(output, "expected exactly one final-message GitHub output");
   assert.equal(output[2], finalMessage);
-  if (result.diagnostics.length) {
-    assert.equal(result.diagnostics.find(({ event }) => event === "spawn").phase, "running");
-    const phases = result.diagnostics.filter(({ event }) => event === "phase");
-    assert.equal(phases[0].code, 0);
-    assert.equal(phases[0].signal, null);
-    assert.deepEqual(phases.map(({ phase }) => phase), [
-      "draining", ...(result.stdout.includes("output streams remained open") ? ["closing-retained-streams"] : []),
-      "streams-closed", "reading-output", "publishing-output", "output-published",
-      "cleaning-output", "cleaning-schema", "cleanup-complete",
-    ]);
-  }
 }
 
 test("finishes when an exited Codex leaves a quiet descendant holding log pipes", posixOnly, async () => {
-  const result = await runFixture("retainPipes(false);", { diagnostics: true });
+  const result = await runFixture("retainPipes(false);");
   assertFinalMessage(result);
   assert.match(result.stdout, /fixture stdout\n/);
   assert.match(result.stderr, /fixture stderr\n/);
@@ -191,25 +177,18 @@ test("finishes when an exited Codex leaves a quiet descendant holding log pipes"
 test("keeps shutdown bounded while a descendant continues writing logs", posixOnly, async () => {
   const result = await runFixture("retainPipes(true);");
   assertFinalMessage(result);
-  assert.deepEqual(result.diagnostics, [], "diagnostics must be opt-in");
   assert.match(result.stdout, /descendant stdout/);
   assert.match(result.stderr, /descendant stderr/);
   assert.match(result.stdout, /::warning::Codex exited, but its output streams remained open after 5 seconds/);
 });
 
 test("preserves a failing Codex exit even when a final message and retained pipes exist", posixOnly, async () => {
-  const result = await runFixture("retainPipes(false); process.exitCode = 17;", { diagnostics: true });
+  const result = await runFixture("retainPipes(false); process.exitCode = 17;");
   assert.equal(result.timedOut, false, "a failing Codex must also release action log pipes");
   assert.notEqual(result.code, 0);
   assert.match(result.stderr, /exited with code 17/);
   assert.equal(result.output, finalMessage);
   assert.equal(result.githubOutput, "");
-  const exit = result.diagnostics.find(({ phase }) => phase === "draining");
-  assert.equal(exit.code, 17);
-  assert.equal(exit.signal, null);
-  assert.deepEqual(result.diagnostics.filter(({ event }) => event === "phase").map(({ phase }) => phase), [
-    "draining", "closing-retained-streams", "streams-closed", "failed", "cleaning-schema", "cleanup-complete",
-  ]);
 });
 
 test("forwards complete large stdout and stderr before normal completion", posixOnly, async () => {
@@ -218,7 +197,7 @@ test("forwards complete large stdout and stderr before normal completion", posix
   const result = await runFixture(`await Promise.all([
     new Promise((resolve) => process.stdout.write(${JSON.stringify(stdout)}, resolve)),
     new Promise((resolve) => process.stderr.write(${JSON.stringify(stderr)}, resolve)),
-  ]);`, { diagnostics: true });
+  ]);`);
   assertFinalMessage(result);
   assert.ok(result.stdout.endsWith("fixture stdout\n" + stdout));
   assert.equal(result.stderr, "fixture stderr\n" + stderr);
@@ -239,26 +218,19 @@ test("preserves complete large final logs when a descendant keeps the pipes open
 });
 
 test("does not publish success while Codex is still running after writing its final message", posixOnly, async () => {
-  const result = await runFixture("setTimeout(() => process.exit(0), 10000);", { timeoutMs: 1500, diagnostics: true });
+  const result = await runFixture("setTimeout(() => process.exit(0), 10000);", { timeoutMs: 1500 });
   assert.equal(result.output, finalMessage, "the live child must have written its result");
   assert.equal(result.timedOut, true, "an output file must not finish a live Codex process");
   assert.equal(result.githubOutput, "");
-  assert.equal(result.diagnostics.find(({ event }) => event === "spawn").phase, "running");
-  assert.deepEqual(result.diagnostics.filter(({ event }) => event === "phase"), []);
 });
 
 test("reports signal termination even when a descendant retains log pipes", posixOnly, async () => {
   // Signal termination does not run the fake's exit hook.
-  const result = await runFixture('retainPipes(false); markStopped(); process.kill(process.pid, "SIGTERM");', { diagnostics: true });
+  const result = await runFixture('retainPipes(false); markStopped(); process.kill(process.pid, "SIGTERM");');
   assert.equal(result.timedOut, false);
   assert.notEqual(result.code, 0);
   assert.match(result.stderr, /exited with signal SIGTERM/);
   assert.equal(result.githubOutput, "");
-  const exit = result.diagnostics.find(({ phase }) => phase === "draining");
-  assert.equal(exit.code, null);
-  assert.equal(exit.signal, "SIGTERM");
-  assert.ok(result.diagnostics.some(({ phase }) => phase === "failed"));
-  assert.ok(!result.diagnostics.some(({ phase }) => phase === "publishing-output"));
 });
 
 test("reports a spawn error without publishing a final message", posixOnly, async () => {
