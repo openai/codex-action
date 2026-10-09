@@ -146,6 +146,14 @@ runs:
       with:
         node-version: "24"
 
+    - name: Validate action paths
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        CODEX_PROMPT_FILE: ${{ inputs['prompt-file'] }}
+        CODEX_WORKING_DIRECTORY: ${{ inputs['working-directory'] || github.workspace }}
+      run: node "$ACTION_PATH/scripts/validateActionPaths.mjs"
+
     - name: Check repository write access
       env:
         ACTION_PATH: ${{ github.action_path }}
