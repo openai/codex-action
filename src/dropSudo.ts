@@ -76,10 +76,12 @@ export async function dropSudo(options: DropSudoOptions): Promise<void> {
   const execArgs = [...process.execArgv];
   const scriptPath = process.argv[1];
   // Re-enter this command under sudo so the privilege-dropping work happens in a
-  // single place regardless of the host platform.
+  // single place regardless of the host platform. Use process.execPath instead
+  // of a bare "node" because sudo may reset PATH and hide the Node.js binary
+  // that runs this action.
   await execCommand("sudo", [
     "-n",
-    "node",
+    process.execPath,
     ...execArgs,
     scriptPath,
     "drop-sudo",
