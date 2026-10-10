@@ -35,19 +35,19 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          # Explicitly check out the PR's merge commit.
-          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+          # Pin the merge commit captured by the pull_request event.
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Pre-fetch base and head refs for the PR
         env:
-          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           # Pass GitHub expressions through env and quote shell expansions.
           git fetch --no-tags origin \
-            "$PR_BASE_REF" \
-            "+refs/pull/$PR_NUMBER/head"
+            "$PR_BASE_SHA" \
+            "$PR_HEAD_SHA"
 
       # If you want Codex to build and run code, install any dependencies that
       # need to be downloaded before the "Run Codex" step. The recommended
