@@ -566,7 +566,7 @@ fs.writeFileSync(${JSON.stringify(originalCredentialsPath)}, JSON.stringify({
 
         if (scenario.emptyAclMask) {
           assert.notEqual(result.status, 0);
-          assert.match(result.stderr, /Cannot restrict .*shadow\.sock with an empty ACL mask/);
+          assert.match(result.stdout, /Cannot restrict .*shadow\.sock with an empty ACL mask/);
           assert.equal(existsSync(capturePath), false);
           sudo(["/usr/bin/sudo", "-n", "-u", user, "--", "/usr/bin/sudo", "-n", "/usr/bin/true"]);
           assert.equal(sudo(["id", "-G", user]), initialGroups,
@@ -583,7 +583,7 @@ fs.writeFileSync(${JSON.stringify(originalCredentialsPath)}, JSON.stringify({
 
         if (scenario.remainingSudoGrant) {
           assert.notEqual(result.status, 0);
-          assert.match(result.stderr, /Expected sudo to be disabled/);
+          assert.match(result.stdout, /^Expected sudo to be disabled, but sudo succeeded\.$/m);
           assert.equal(existsSync(capturePath), false);
           return;
         }
@@ -645,7 +645,7 @@ fs.writeFileSync(${JSON.stringify(originalCredentialsPath)}, JSON.stringify({
         assert.equal(readFileSync(outputPath, "utf8"), "fake final message\n");
         if (scenario.retainOutput) {
           assert.match(result.stdout, /fixture stdout\n/);
-          assert.match(result.stderr, /fixture stderr\n/);
+          assert.match(result.stdout, /fixture stderr\n/);
           assert.match(result.stdout, /::warning::Codex exited, but its output streams remained open/);
           const githubOutput = readFileSync(githubOutputPath, "utf8");
           const match = githubOutput.match(/^final-message<<([^\r\n]+)\r?\n([\s\S]*)\r?\n\1\r?\n$/);
