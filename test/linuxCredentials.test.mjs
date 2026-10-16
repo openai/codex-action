@@ -37,7 +37,7 @@ function loadLauncher(file, spawn) {
     },
     process: { platform: "linux", getuid: () => original.userId,
       getgid: () => original.primaryGroupId, getgroups: () => original.supplementaryGroupIds,
-      execPath: "/synthetic/node", argv: ["node", "/synthetic/main.js"], execArgv: [], env: {} },
+      execPath: "/synthetic/node", argv: ["node", "/synthetic/main.js"], execArgv: [], env: { TMPDIR: "/synthetic/temp directory" } },
     console: { log() {} },
   });
   return module.exports;
@@ -58,7 +58,8 @@ test("both Linux launch paths pass the original process credentials", async () =
   }), (error) => error === stopped);
   const marker = captured.args.indexOf("codex-action-drop-sudo");
   assert.deepEqual(JSON.parse(captured.args[marker + 8]), original);
-  assert.equal(captured.args[marker + 9], "/synthetic/codex");
+  assert.equal(captured.args[marker + 9], "TMPDIR=/synthetic/temp directory");
+  assert.equal(captured.args[marker + 10], "/synthetic/codex");
   assert.match(captured.args[captured.args.indexOf("-c") + 1], /--runner-credentials "\$runner_credentials"/);
 
   const drop = loadLauncher("dropSudo", (program, args) => {

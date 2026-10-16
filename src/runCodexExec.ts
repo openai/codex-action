@@ -18,7 +18,8 @@ home="$5"
 runner_path="$6"
 node_options="$7"
 runner_credentials="$8"
-shift 8
+tmpdir_assignment="$9"
+shift 9
 
 if [ ! -x /usr/bin/setpriv ]; then
   echo "Linux drop-sudo requires /usr/bin/setpriv." >&2
@@ -56,6 +57,11 @@ if /usr/bin/sudo -n -u "$user" -- /usr/bin/sudo -n true 2>/dev/null; then
 fi
 echo "Confirmed the standard sudo probe is disabled."
 
+# sudo may strip TMPDIR; restore it after dropping privileges.
+if [ -n "$tmpdir_assignment" ]; then
+  set -- "$tmpdir_assignment" "$@"
+fi
+
 set -- /usr/bin/setpriv \
   --reuid="$uid" \
   --regid="$nobody_gid" \
@@ -65,7 +71,7 @@ set -- /usr/bin/setpriv \
   --inh-caps=-all \
   --ambient-caps=-all \
   -- /usr/bin/env \
-  -u SUDO_COMMAND -u SUDO_USER -u SUDO_UID -u SUDO_GID \
+  -u SUDO_COMMAND -u SUDO_USER -u SUDO_UID -u SUDO_GID -u TMPDIR \
   "HOME=$home" "USER=$user" "LOGNAME=$user" "PATH=$runner_path" \
   "NODE_OPTIONS=$node_options" \
   "$@"
@@ -224,7 +230,8 @@ export async function runCodexExec({
       process.env.HOME ?? user.homedir,
       process.env.PATH ?? "",
       process.env.NODE_OPTIONS ?? "",
-      JSON.stringify(runnerCredentials)
+      JSON.stringify(runnerCredentials),
+      process.env.TMPDIR === undefined ? "" : `TMPDIR=${process.env.TMPDIR}`
     );
   } else if (safetyStrategy === "unprivileged-user") {
     if (codexUser == null) {
