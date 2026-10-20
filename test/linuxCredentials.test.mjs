@@ -37,6 +37,7 @@ function loadLauncher(file, spawn) {
     },
     process: { platform: "linux", getuid: () => original.userId,
       getgid: () => original.primaryGroupId, getgroups: () => original.supplementaryGroupIds,
+      stdout: { write() {} },
       execPath: "/synthetic/node", argv: ["node", "/synthetic/main.js"], execArgv: [], env: { TMPDIR: "/synthetic/temp directory" } },
     console: { log() {} },
   });
