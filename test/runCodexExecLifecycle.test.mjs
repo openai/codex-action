@@ -166,20 +166,74 @@ function assertFinalMessage(result) {
   assert.equal(output[2], finalMessage);
 }
 
+function assertProtectedLogs(result) {
+  const stops = [...result.stdout.matchAll(/^::stop-commands::([^\r\n]+)\r?\n/gm)];
+  assert.equal(stops.length, 1, "workflow commands must be stopped exactly once");
+  const [stop] = stops;
+  const token = stop[1];
+  const resume = `::${token}::\n`;
+  const resumeIndex = result.stdout.indexOf(resume);
+  assert.ok(resumeIndex > stop.index, "workflow commands must resume after stopping");
+  assert.equal(result.stdout[resumeIndex - 1], "\n", "the resume command must start on a new line");
+  assert.equal(result.stdout.indexOf(resume, resumeIndex + resume.length), -1, "workflow commands must resume exactly once");
+  const logs = result.stdout.slice(stop.index + stop[0].length, resumeIndex);
+  assert.match(logs, /^Running: /, "the command diagnostic must also be protected");
+  assert.doesNotMatch(result.stderr, /fixture stderr|descendant stderr/, "child stderr must use the protected stdout stream");
+  const after = result.stdout.slice(resumeIndex + resume.length);
+  assert.doesNotMatch(after, /fixture (stdout|stderr)|descendant (stdout|stderr)/, "child output must end before workflow commands resume");
+  return { token, logs, after };
+}
+
+function assertLargeLogs(logs) {
+  // The streams may interleave between any two chunks; check completeness without
+  // assuming that either stream's entire large write remains contiguous.
+  const output = logs.replace(/^Running: [^\n]*\n/, "");
+  assert.equal(output.match(/O/g)?.length, 512 * 1024);
+  assert.equal(output.match(/E/g)?.length, 512 * 1024);
+  assert.match(output, /fixture stdout\n/);
+  assert.match(output, /fixture stderr\n/);
+  assert.match(output, /\nstdout tail\n/);
+  assert.match(output, /\nstderr tail\n/);
+}
+
+test("protects workflow command text on both streams with a fresh resume token", posixOnly, async () => {
+  const matcher = '    core.info(`##[add-matcher]${path.join(matchersPath, "python.json")}`);';
+  const tokens = [];
+  for (let invocation = 0; invocation < 2; invocation++) {
+    const result = await runFixture(`for (const stream of [process.stdout, process.stderr]) {
+      for (const chunk of ${JSON.stringify([matcher + "\n", "::err", "or::literal diagnostic\n", "unterminated log"])}) {
+        await new Promise((resolve) => stream.write(chunk, resolve));
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    }`);
+    assertFinalMessage(result);
+    const { token, logs, after } = assertProtectedLogs(result);
+    tokens.push(token);
+    assert.equal(logs.split(matcher).length - 1, 2);
+    assert.equal(logs.split("::error::literal diagnostic").length - 1, 2);
+    assert.equal(logs.split("unterminated log").length - 1, 2);
+    assert.equal(result.stderr, "");
+    assert.equal(after, "");
+  }
+  assert.notEqual(tokens[0], tokens[1], "each invocation needs a fresh resume token");
+});
+
 test("finishes when an exited Codex leaves a quiet descendant holding log pipes", posixOnly, async () => {
   const result = await runFixture("retainPipes(false);");
   assertFinalMessage(result);
-  assert.match(result.stdout, /fixture stdout\n/);
-  assert.match(result.stderr, /fixture stderr\n/);
-  assert.match(result.stdout, /::warning::Codex exited, but its output streams remained open after 5 seconds/);
+  const { logs, after } = assertProtectedLogs(result);
+  assert.match(logs, /fixture stdout\n/);
+  assert.match(logs, /fixture stderr\n/);
+  assert.match(after, /^::warning::Codex exited, but its output streams remained open after 5 seconds/);
 });
 
 test("keeps shutdown bounded while a descendant continues writing logs", posixOnly, async () => {
   const result = await runFixture("retainPipes(true);");
   assertFinalMessage(result);
-  assert.match(result.stdout, /descendant stdout/);
-  assert.match(result.stderr, /descendant stderr/);
-  assert.match(result.stdout, /::warning::Codex exited, but its output streams remained open after 5 seconds/);
+  const { logs, after } = assertProtectedLogs(result);
+  assert.match(logs, /descendant stdout/);
+  assert.match(logs, /descendant stderr/);
+  assert.match(after, /^::warning::Codex exited, but its output streams remained open after 5 seconds/);
 });
 
 test("preserves a failing Codex exit even when a final message and retained pipes exist", posixOnly, async () => {
@@ -189,6 +243,8 @@ test("preserves a failing Codex exit even when a final message and retained pipe
   assert.match(result.stderr, /exited with code 17/);
   assert.equal(result.output, finalMessage);
   assert.equal(result.githubOutput, "");
+  const { after } = assertProtectedLogs(result);
+  assert.match(after, /^::warning::Codex exited, but its output streams remained open after 5 seconds/);
 });
 
 test("forwards complete large stdout and stderr before normal completion", posixOnly, async () => {
@@ -199,8 +255,10 @@ test("forwards complete large stdout and stderr before normal completion", posix
     new Promise((resolve) => process.stderr.write(${JSON.stringify(stderr)}, resolve)),
   ]);`);
   assertFinalMessage(result);
-  assert.ok(result.stdout.endsWith("fixture stdout\n" + stdout));
-  assert.equal(result.stderr, "fixture stderr\n" + stderr);
+  const { logs, after } = assertProtectedLogs(result);
+  assertLargeLogs(logs);
+  assert.equal(result.stderr, "");
+  assert.equal(after, "");
 });
 
 test("preserves complete large final logs when a descendant keeps the pipes open", posixOnly, async () => {
@@ -212,9 +270,10 @@ test("preserves complete large final logs when a descendant keeps the pipes open
     new Promise((resolve) => process.stderr.write(${JSON.stringify(stderr)}, resolve)),
   ]);`);
   assertFinalMessage(result);
-  assert.ok(result.stdout.includes("fixture stdout\n" + stdout));
-  assert.equal(result.stderr, "fixture stderr\n" + stderr);
-  assert.match(result.stdout, /::warning::Codex exited, but its output streams remained open after 5 seconds/);
+  const { logs, after } = assertProtectedLogs(result);
+  assertLargeLogs(logs);
+  assert.equal(result.stderr, "");
+  assert.match(after, /^::warning::Codex exited, but its output streams remained open after 5 seconds/);
 });
 
 test("does not publish success while Codex is still running after writing its final message", posixOnly, async () => {
@@ -231,6 +290,7 @@ test("reports signal termination even when a descendant retains log pipes", posi
   assert.notEqual(result.code, 0);
   assert.match(result.stderr, /exited with signal SIGTERM/);
   assert.equal(result.githubOutput, "");
+  assertProtectedLogs(result);
 });
 
 test("reports a spawn error without publishing a final message", posixOnly, async () => {
@@ -240,4 +300,5 @@ test("reports a spawn error without publishing a final message", posixOnly, asyn
   assert.match(result.stderr, /spawn codex ENOENT/);
   assert.equal(result.output, null);
   assert.equal(result.githubOutput, "");
+  assertProtectedLogs(result);
 });

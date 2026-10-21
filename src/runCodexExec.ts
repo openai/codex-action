@@ -1,4 +1,5 @@
 import { spawn } from "child_process";
+import { randomUUID } from "crypto";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import path from "path";
 import os from "os";
@@ -307,68 +308,77 @@ export async function runCodexExec({
 
   // Split the `program` from the `args` for `spawn()`.
   const program = command.shift()!;
-  console.log(
-    `Running: ${extraEnv}${program} ${command
-      .map((a) => JSON.stringify(a))
-      .join(" ")}`
-  );
   try {
-    await new Promise((resolve, reject) => {
-      const child = spawn(program, command, {
-        env,
-        // Descendants must not inherit the runner's log transport directly.
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-      child.stdout.pipe(process.stdout, { end: false });
-      child.stderr.pipe(process.stderr, { end: false });
+    // Reviewed source and tool output can contain workflow commands. Keep the
+    // token in the parent and send both streams through the same destination as
+    // the markers so no buffered stderr can arrive after commands are resumed.
+    const stopToken = randomUUID();
+    let outputDrainTimedOut = false;
+    process.stdout.write(`::stop-commands::${stopToken}\n`);
+    try {
+      console.log(
+        `Running: ${extraEnv}${program} ${command
+          .map((a) => JSON.stringify(a))
+          .join(" ")}`
+      );
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn(program, command, {
+          env,
+          // Descendants must not inherit the runner's log transport directly.
+          stdio: ["pipe", "pipe", "pipe"],
+        });
+        child.stdout.pipe(process.stdout, { end: false });
+        child.stderr.pipe(process.stdout, { end: false });
 
-      let outputDrainTimer: NodeJS.Timeout | undefined;
-      const closeOutputStreams = () => {
-        clearTimeout(outputDrainTimer);
-        child.stdout.unpipe(process.stdout);
-        child.stderr.unpipe(process.stderr);
-        child.stdout.destroy();
-        child.stderr.destroy();
-      };
+        let outputDrainTimer: NodeJS.Timeout | undefined;
+        const closeOutputStreams = () => {
+          clearTimeout(outputDrainTimer);
+          child.stdout.unpipe(process.stdout);
+          child.stderr.unpipe(process.stdout);
+          child.stdout.destroy();
+          child.stderr.destroy();
+        };
 
-      child.once("error", (error) => {
-        closeOutputStreams();
-        reject(error);
-      });
-      child.once("exit", () => {
-        child.stdin.destroy();
-        // Normally `close` follows after all buffered output has drained. Bound
-        // that wait when a surviving descendant holds a pipe open, even if it
-        // continues writing. Never infer process completion from the result file.
-        outputDrainTimer = setTimeout(() => {
-          warning(
-            "Codex exited, but its output streams remained open after 5 seconds. " +
-              "Closing the streams to finish the action; remaining log output may be lost."
-          );
+        child.once("error", (error) => {
           closeOutputStreams();
-        }, OUTPUT_DRAIN_TIMEOUT_MS);
-      });
+          reject(error);
+        });
+        child.once("exit", () => {
+          child.stdin.destroy();
+          // Normally `close` follows after all buffered output has drained. Bound
+          // that wait when a surviving descendant holds a pipe open, even if it
+          // continues writing. Never infer process completion from the result file.
+          outputDrainTimer = setTimeout(() => {
+            outputDrainTimedOut = true;
+            closeOutputStreams();
+          }, OUTPUT_DRAIN_TIMEOUT_MS);
+        });
 
-      child.once("close", async (code, signal) => {
-        closeOutputStreams();
-        if (code !== 0) {
-          reject(
-            new Error(
-              `${program} exited with ${signal ? `signal ${signal}` : `code ${code}`}`
-            )
-          );
-          return;
-        }
-
-        try {
-          await finalizeExecution(outputFile, runAsUser);
-          resolve(undefined);
-        } catch (err) {
-          reject(err);
-        }
+        child.once("close", (code, signal) => {
+          closeOutputStreams();
+          if (code !== 0) {
+            reject(
+              new Error(
+                `${program} exited with ${signal ? `signal ${signal}` : `code ${code}`}`
+              )
+            );
+            return;
+          }
+          resolve();
+        });
+        child.stdin.end(input);
       });
-      child.stdin.end(input);
-    });
+    } finally {
+      // Start a new line even if the last child output had no trailing newline.
+      process.stdout.write(`\n::${stopToken}::\n`);
+      if (outputDrainTimedOut) {
+        warning(
+          "Codex exited, but its output streams remained open after 5 seconds. " +
+            "Closing the streams to finish the action; remaining log output may be lost."
+        );
+      }
+    }
+    await finalizeExecution(outputFile, runAsUser);
   } finally {
     await cleanupOutputSchema(resolvedOutputSchema);
   }
