@@ -365,7 +365,10 @@ runs:
         FORCE_COLOR: 1
       shell: bash
       run: |
-        exec env -u NODE_OPTIONS NODE_OPTIONS=--disable-sigusr1 node --disable-sigusr1 "$ACTION_PATH/dist/main.js" run-codex-exec \
+        workflow_command_token="codex-action-$(uuidgen)"
+        echo "::stop-commands::$workflow_command_token"
+        set +e
+        env -u NODE_OPTIONS NODE_OPTIONS=--disable-sigusr1 node --disable-sigusr1 "$ACTION_PATH/dist/main.js" run-codex-exec \
             --prompt "${CODEX_PROMPT}" \
             --prompt-file "${CODEX_PROMPT_FILE}" \
             --output-file "$CODEX_OUTPUT_FILE" \
@@ -380,3 +383,6 @@ runs:
             --effort "$CODEX_EFFORT" \
             --safety-strategy "$CODEX_SAFETY_STRATEGY" \
             --codex-user "$CODEX_USER"
+        run_codex_exit=$?
+        echo "::$workflow_command_token::"
+        exit "$run_codex_exit"
