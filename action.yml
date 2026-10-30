@@ -164,7 +164,25 @@ runs:
       shell: bash
       env:
         CODEX_VERSION: ${{ inputs['codex-version'] }}
-      run: npm install -g "@openai/codex@${CODEX_VERSION}"
+      run: |
+        set -euo pipefail
+        version="${CODEX_VERSION}"
+        if [ -z "${version}" ]; then
+          version="$(npm view @openai/codex version)"
+        fi
+        platform="$(node -p 'process.platform + "-" + process.arch')"
+        for _ in $(seq 1 30); do
+          if npm view "@openai/codex@${version}-${platform}" version >/dev/null 2>&1; then
+            break
+          fi
+          echo "Waiting for @openai/codex@${version}-${platform}; npm would skip that binary silently." >&2
+          sleep 10
+        done
+        npm install -g "@openai/codex@${version}"
+        if ! CODEX_HOME="${RUNNER_TEMP}/codex-install-check" codex --version >/dev/null 2>&1; then
+          echo "Codex CLI is installed but not runnable; its platform binary is missing." >&2
+          exit 1
+        fi
 
     - name: Install Codex Responses API proxy
       shell: bash
