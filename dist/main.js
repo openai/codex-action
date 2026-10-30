@@ -25341,7 +25341,7 @@ async function dropSudo(options) {
   const scriptPath = process.argv[1];
   await execCommand("sudo", [
     "-n",
-    "node",
+    process.execPath,
     ...execArgs,
     scriptPath,
     "drop-sudo",
