@@ -1,9 +1,11 @@
 import { spawn } from "child_process";
 import { randomUUID } from "crypto";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "fs/promises";
+import { createRequire } from "module";
 import path from "path";
 import os from "os";
 import { setOutput, warning } from "@actions/core";
+import { which } from "@actions/io";
 import { checkOutput } from "./checkOutput";
 import { captureLinuxRunnerCredentials } from "./linuxCredentials";
 
@@ -256,6 +258,21 @@ export async function runCodexExec({
     }
 
     command.push("sudo", "-u", codexUser, "--");
+  }
+
+  if (process.platform === "win32") {
+    const codexPath = await which(pathToCodex, true);
+    if (/\.(cmd|bat)$/i.test(codexPath)) {
+      // npm installs a command shim on Windows, which spawn cannot execute.
+      // Run its JavaScript entrypoint directly so cmd.exe cannot reinterpret
+      // quoted configuration values or shell metacharacters in arguments.
+      command.push(process.execPath);
+      pathToCodex = createRequire(codexPath).resolve(
+        "@openai/codex/bin/codex.js"
+      );
+    } else {
+      pathToCodex = codexPath;
+    }
   }
 
   command.push(
