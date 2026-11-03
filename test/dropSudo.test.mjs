@@ -25,6 +25,11 @@ const canTestSocketAcls =
   canTestLinuxIsolation &&
   spawnSync("/usr/bin/setfacl", ["--version"], { stdio: "ignore" }).status === 0;
 
+// The uutils test on Ubuntu 26.04 ignores ACLs; the shell builtin asks the kernel.
+function testWritable(target) {
+  return ["/bin/sh", "-c", 'test -w "$1"', "sh", target];
+}
+
 function sudo(args, options = {}) {
   const result = spawnSync("sudo", ["-n", "--", ...args], {
     encoding: "utf8",
@@ -345,7 +350,7 @@ test(
           ...(canTestSocketAcls ? [namedUserAclSocket] : []),
           ...(canTestSocketAcls && scenario.staleGroups ? [staleAclSocket] : []),
         ]) {
-          sudo(["/usr/bin/sudo", "-n", "-u", user, "--", "test", "-w", socket]);
+          sudo(["/usr/bin/sudo", "-n", "-u", user, "--", ...testWritable(socket)]);
         }
         assert.notEqual(
           spawnSync("sudo", [
@@ -353,9 +358,7 @@ test(
             "-u",
             user,
             "--",
-            "test",
-            "-w",
-            fallbackSocket,
+            ...testWritable(fallbackSocket),
           ]).status,
           0
         );
@@ -366,9 +369,7 @@ test(
               "-u",
               user,
               "--",
-              "test",
-              "-w",
-              fallbackAclSocket,
+              ...testWritable(fallbackAclSocket),
             ]).status,
             0
           );
@@ -378,9 +379,7 @@ test(
             `--regid=${safeGroup}`,
             "--clear-groups",
             "--",
-            "/usr/bin/test",
-            "-w",
-            fallbackAclSocket,
+            ...testWritable(fallbackAclSocket),
           ]);
         }
 
@@ -529,7 +528,7 @@ fs.writeFileSync(${JSON.stringify(originalCredentialsPath)}, JSON.stringify({
           ? [
               ...command.slice(0, 4),
               "/bin/sh", "-ec",
-              '/usr/bin/sudo -n /usr/bin/gpasswd -d "$1" "$2"; /usr/bin/id -G > "$3"; /usr/bin/sudo -n -u "$1" -- /usr/bin/test -w "$4"; shift 4; exec "$@"',
+              '/usr/bin/sudo -n /usr/bin/gpasswd -d "$1" "$2"; /usr/bin/id -G > "$3"; /usr/bin/sudo -n -u "$1" -- /bin/sh -c \'test -w "$1"\' sh "$4"; shift 4; exec "$@"',
               "codex-stale-groups", user, privilegedGroup, liveGroupsPath, shadowSocket,
               ...command.slice(4),
             ]
@@ -739,9 +738,7 @@ fs.writeFileSync(${JSON.stringify(originalCredentialsPath)}, JSON.stringify({
             "-u",
             user,
             "--",
-            "test",
-            "-w",
-            socket,
+            ...testWritable(socket),
           ]);
           assert.notEqual(access.status, 0);
           const originalAccess = spawnSync("sudo", [
@@ -751,7 +748,7 @@ fs.writeFileSync(${JSON.stringify(originalCredentialsPath)}, JSON.stringify({
             originalCredentials.supplementaryGroupIds.length === 0
               ? "--clear-groups"
               : `--groups=${originalCredentials.supplementaryGroupIds.join(",")}`,
-            "--", "/usr/bin/test", "-w", socket,
+            "--", ...testWritable(socket),
           ], { encoding: "utf8", timeout: 5_000 });
           assert.equal(originalAccess.status, 1,
             `original runner credentials retained access to ${socket}: ${originalAccess.stderr}`);

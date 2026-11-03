@@ -456,6 +456,8 @@ async function isSocketWritable(
       identity.supplementaryGroupIds.length === 0
         ? "--clear-groups"
         : `--groups=${identity.supplementaryGroupIds.join(",")}`;
+    // The shell's test builtin asks the kernel (faccessat), which applies ACLs.
+    // The uutils /usr/bin/test on Ubuntu 26.04 only reads the mode bits.
     const result = await execCommand(
       "/usr/bin/setpriv",
       [
@@ -463,8 +465,10 @@ async function isSocketWritable(
         `--regid=${identity.primaryGroupId}`,
         groupArgument,
         "--",
-        "/usr/bin/test",
-        "-w",
+        "/bin/sh",
+        "-c",
+        'test -w "$1"',
+        "sh",
         "/proc/self/fd/3",
       ],
       {
