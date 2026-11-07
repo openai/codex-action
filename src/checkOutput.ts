@@ -11,8 +11,9 @@ export function checkOutput(command: Array<string>): Promise<string> {
     proc.on("error", reject);
 
     let output = "";
+    proc.stdout.setEncoding("utf8");
     proc.stdout.on("data", (chunk) => {
-      output += chunk.toString();
+      output += chunk;
     });
 
     proc.on("close", (code) => {
