@@ -188,6 +188,19 @@ runs:
           --codex-user "$CODEX_USER" \
           --github-run-id "$CODEX_RUN_ID"
 
+    - name: Ensure Codex home exists
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        CODEX_HOME: ${{ steps.resolve_home.outputs.codex-home }}
+        SAFETY_STRATEGY: ${{ inputs['safety-strategy'] }}
+        CODEX_USER: ${{ inputs['codex-user'] }}
+      run: |
+        node "$ACTION_PATH/scripts/ensureCodexHome.mjs" \
+          "$CODEX_HOME" \
+          "$SAFETY_STRATEGY" \
+          "$CODEX_USER"
+
     - name: Determine server info path
       id: derive_server_info
       shell: bash
