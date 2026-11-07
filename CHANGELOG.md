@@ -1,5 +1,11 @@
 # codex-action Changelog
 
+## [v1.13](https://github.com/openai/codex-action/tree/v1.13) (2026-10-05)
+
+- [#183](https://github.com/openai/codex-action/pull/183) preserve system service access when restricting runner sockets under Linux `drop-sudo`.
+- Bound output draining to five seconds after Codex exits so descendants retaining log streams cannot keep the action open.
+- Linux `drop-sudo` now requires `setfacl` (the `acl` package) and ACL support on `/run`.
+
 ## [v1.12](https://github.com/openai/codex-action/tree/v1.12) (2026-08-20)
 
 - Strengthen Linux runner privilege isolation and Responses API proxy credential handling.

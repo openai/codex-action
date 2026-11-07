@@ -1,10 +1,14 @@
 import { spawn } from "child_process";
+import { randomUUID } from "crypto";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import path from "path";
 import os from "os";
-import { setOutput } from "@actions/core";
+import { setOutput, warning } from "@actions/core";
 import { checkOutput } from "./checkOutput";
 import { captureLinuxRunnerCredentials } from "./linuxCredentials";
+
+// Bound output draining after process exit: a descendant may retain the write ends.
+const OUTPUT_DRAIN_TIMEOUT_MS = 5_000;
 
 const LINUX_DROP_SUDO_SCRIPT = String.raw`
 node="$1"
@@ -15,7 +19,8 @@ home="$5"
 runner_path="$6"
 node_options="$7"
 runner_credentials="$8"
-shift 8
+tmpdir_assignment="$9"
+shift 9
 
 if [ ! -x /usr/bin/setpriv ]; then
   echo "Linux drop-sudo requires /usr/bin/setpriv." >&2
@@ -45,19 +50,18 @@ case "$group_entry" in
 esac
 
 /usr/bin/env -u NODE_OPTIONS "$node" "$action" drop-sudo --root-phase --user "$user" --group sudo --runner-credentials "$runner_credentials" || exit $?
-unsafe_nobody_socket="$(/usr/bin/find /run -type s -uid 0 -gid "$nobody_gid" -perm -020 -print -quit)" || {
-  echo "Linux drop-sudo could not verify the nobody primary group." >&2
-  exit 1
-}
-if [ -n "$unsafe_nobody_socket" ]; then
-  echo "Linux drop-sudo refuses an unsafe nobody primary group." >&2
-  exit 1
-fi
+# The root phase verifies socket access with the runner UID and nobody GID.
+# Group mode bits alone do not reflect the runner's named-user deny ACL.
 if /usr/bin/sudo -n -u "$user" -- /usr/bin/sudo -n true 2>/dev/null; then
   echo "Expected sudo to be disabled, but sudo succeeded." >&2
   exit 1
 fi
 echo "Confirmed the standard sudo probe is disabled."
+
+# sudo may strip TMPDIR; restore it after dropping privileges.
+if [ -n "$tmpdir_assignment" ]; then
+  set -- "$tmpdir_assignment" "$@"
+fi
 
 set -- /usr/bin/setpriv \
   --reuid="$uid" \
@@ -68,7 +72,7 @@ set -- /usr/bin/setpriv \
   --inh-caps=-all \
   --ambient-caps=-all \
   -- /usr/bin/env \
-  -u SUDO_COMMAND -u SUDO_USER -u SUDO_UID -u SUDO_GID \
+  -u SUDO_COMMAND -u SUDO_USER -u SUDO_UID -u SUDO_GID -u TMPDIR \
   "HOME=$home" "USER=$user" "LOGNAME=$user" "PATH=$runner_path" \
   "NODE_OPTIONS=$node_options" \
   "$@"
@@ -227,7 +231,8 @@ export async function runCodexExec({
       process.env.HOME ?? user.homedir,
       process.env.PATH ?? "",
       process.env.NODE_OPTIONS ?? "",
-      JSON.stringify(runnerCredentials)
+      JSON.stringify(runnerCredentials),
+      process.env.TMPDIR === undefined ? "" : `TMPDIR=${process.env.TMPDIR}`
     );
   } else if (safetyStrategy === "unprivileged-user") {
     if (codexUser == null) {
@@ -303,36 +308,77 @@ export async function runCodexExec({
 
   // Split the `program` from the `args` for `spawn()`.
   const program = command.shift()!;
-  console.log(
-    `Running: ${extraEnv}${program} ${command
-      .map((a) => JSON.stringify(a))
-      .join(" ")}`
-  );
   try {
-    await new Promise((resolve, reject) => {
-      const child = spawn(program, command, {
-        env,
-        stdio: ["pipe", "inherit", "inherit"],
+    // Reviewed source and tool output can contain workflow commands. Keep the
+    // token in the parent and send both streams through the same destination as
+    // the markers so no buffered stderr can arrive after commands are resumed.
+    const stopToken = randomUUID();
+    let outputDrainTimedOut = false;
+    process.stdout.write(`::stop-commands::${stopToken}\n`);
+    try {
+      console.log(
+        `Running: ${extraEnv}${program} ${command
+          .map((a) => JSON.stringify(a))
+          .join(" ")}`
+      );
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn(program, command, {
+          env,
+          // Descendants must not inherit the runner's log transport directly.
+          stdio: ["pipe", "pipe", "pipe"],
+        });
+        child.stdout.pipe(process.stdout, { end: false });
+        child.stderr.pipe(process.stdout, { end: false });
+
+        let outputDrainTimer: NodeJS.Timeout | undefined;
+        const closeOutputStreams = () => {
+          clearTimeout(outputDrainTimer);
+          child.stdout.unpipe(process.stdout);
+          child.stderr.unpipe(process.stdout);
+          child.stdout.destroy();
+          child.stderr.destroy();
+        };
+
+        child.once("error", (error) => {
+          closeOutputStreams();
+          reject(error);
+        });
+        child.once("exit", () => {
+          child.stdin.destroy();
+          // Normally `close` follows after all buffered output has drained. Bound
+          // that wait when a surviving descendant holds a pipe open, even if it
+          // continues writing. Never infer process completion from the result file.
+          outputDrainTimer = setTimeout(() => {
+            outputDrainTimedOut = true;
+            closeOutputStreams();
+          }, OUTPUT_DRAIN_TIMEOUT_MS);
+        });
+
+        child.once("close", (code, signal) => {
+          closeOutputStreams();
+          if (code !== 0) {
+            reject(
+              new Error(
+                `${program} exited with ${signal ? `signal ${signal}` : `code ${code}`}`
+              )
+            );
+            return;
+          }
+          resolve();
+        });
+        child.stdin.end(input);
       });
-      child.stdin.write(input);
-      child.stdin.end();
-
-      child.on("error", reject);
-
-      child.on("close", async (code) => {
-        if (code !== 0) {
-          reject(new Error(`${program} exited with code ${code}`));
-          return;
-        }
-
-        try {
-          await finalizeExecution(outputFile, runAsUser);
-          resolve(undefined);
-        } catch (err) {
-          reject(err);
-        }
-      });
-    });
+    } finally {
+      // Start a new line even if the last child output had no trailing newline.
+      process.stdout.write(`\n::${stopToken}::\n`);
+      if (outputDrainTimedOut) {
+        warning(
+          "Codex exited, but its output streams remained open after 5 seconds. " +
+            "Closing the streams to finish the action; remaining log output may be lost."
+        );
+      }
+    }
+    await finalizeExecution(outputFile, runAsUser);
   } finally {
     await cleanupOutputSchema(resolvedOutputSchema);
   }
