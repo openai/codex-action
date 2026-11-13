@@ -32,6 +32,16 @@ const MACOS_PLATFORM = "darwin";
 const LINUX_RUNTIME_DIRECTORY = "/run";
 const LINUX_O_PATH = 0o10000000;
 
+// Some implementations of `test -w` only inspect mode bits and miss POSIX ACLs.
+const CHECK_SOCKET_WRITE_ACCESS = `
+  const { access, constants } = require("node:fs");
+  access(process.argv[1], constants.W_OK, (error) => {
+    if (!error) return;
+    if (error.code !== "EACCES" && error.code !== "EPERM") throw error;
+    process.exitCode = 1;
+  });
+`;
+
 interface LinuxGroup {
   id: number;
   name: string;
@@ -463,8 +473,9 @@ async function isSocketWritable(
         `--regid=${identity.primaryGroupId}`,
         groupArgument,
         "--",
-        "/usr/bin/test",
-        "-w",
+        process.execPath,
+        "-e",
+        CHECK_SOCKET_WRITE_ACCESS,
         "/proc/self/fd/3",
       ],
       {
