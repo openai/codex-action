@@ -26,7 +26,7 @@ const canTestSocketAcls =
   spawnSync("/usr/bin/setfacl", ["--version"], { stdio: "ignore" }).status === 0;
 
 // Bash's builtin checks effective access, including named-user and group ACLs.
-const testWritable = ["/bin/bash", "-c", '[[ -w "$1" ]]', "bash"];
+const testWritable = ["/bin/bash", "--norc", "-c", '[[ -w "$1" ]]', "bash"];
 
 function sudo(args, options = {}) {
   const result = spawnSync("sudo", ["-n", "--", ...args], {
@@ -529,7 +529,7 @@ fs.writeFileSync(${JSON.stringify(originalCredentialsPath)}, JSON.stringify({
           ? [
               ...command.slice(0, 4),
               "/bin/sh", "-ec",
-              `/usr/bin/sudo -n /usr/bin/gpasswd -d "$1" "$2"; /usr/bin/id -G > "$3"; /usr/bin/sudo -n -u "$1" -- /bin/bash -c '[[ -w "$1" ]]' bash "$4"; shift 4; exec "$@"`,
+              `/usr/bin/sudo -n /usr/bin/gpasswd -d "$1" "$2"; /usr/bin/id -G > "$3"; /usr/bin/sudo -n -u "$1" -- /bin/bash --norc -c '[[ -w "$1" ]]' bash "$4"; shift 4; exec "$@"`,
               "codex-stale-groups", user, privilegedGroup, liveGroupsPath, shadowSocket,
               ...command.slice(4),
             ]
