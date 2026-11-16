@@ -444,12 +444,24 @@ async function isSocketWritable(
     ...(credentials.fallbackGroupId === undefined
       ? []
       : [
-          {
-            primaryGroupId: credentials.fallbackGroupId,
-            supplementaryGroupIds: [],
-          },
-        ]),
+        {
+          primaryGroupId: credentials.fallbackGroupId,
+          supplementaryGroupIds: [],
+        },
+      ]),
   ];
+
+  // Previous version of codex-action used `test -w` to check whether a socket was writeable,
+  // but this could vary if the underlying implementation (e.g. Rust coreutils) only tested
+  // the mode bits and not POSIX ACLs. Node's `fs.access` checks both.
+  const check_socket_write_access = `
+    const { access, constants } = require("node:fs");
+    access(process.argv[1], constants.W_OK, (error) => {
+      if (!error) return;
+      if (error.code !== "EACCES" && error.code !== "EPERM") throw error;
+      process.exitCode = 1;
+    });
+  `;
 
   for (const identity of identityGroups) {
     const groupArgument =
@@ -463,8 +475,9 @@ async function isSocketWritable(
         `--regid=${identity.primaryGroupId}`,
         groupArgument,
         "--",
-        "/usr/bin/test",
-        "-w",
+        process.execPath,
+        "-e",
+        check_socket_write_access,
         "/proc/self/fd/3",
       ],
       {

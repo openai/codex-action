@@ -17,12 +17,8 @@ node="$1"
 action="$2"
 user="$3"
 uid="$4"
-home="$5"
-runner_path="$6"
-node_options="$7"
-runner_credentials="$8"
-tmpdir_assignment="$9"
-shift 9
+runner_credentials="$5"
+shift 5
 
 if [ ! -x /usr/bin/setpriv ]; then
   echo "Linux drop-sudo requires /usr/bin/setpriv." >&2
@@ -51,21 +47,17 @@ case "$group_entry" in
     ;;
 esac
 
-/usr/bin/env -u NODE_OPTIONS "$node" "$action" drop-sudo --root-phase --user "$user" --group sudo --runner-credentials "$runner_credentials" || exit $?
+"$node" "$action" drop-sudo --root-phase --user "$user" --group sudo --runner-credentials "$runner_credentials" </dev/null || exit $?
 # The root phase verifies socket access with the runner UID and nobody GID.
 # Group mode bits alone do not reflect the runner's named-user deny ACL.
-if /usr/bin/sudo -n -u "$user" -- /usr/bin/sudo -n true 2>/dev/null; then
+if /usr/bin/sudo -n -u "$user" -- /usr/bin/sudo -n true </dev/null 2>/dev/null; then
   echo "Expected sudo to be disabled, but sudo succeeded." >&2
   exit 1
 fi
 echo "Confirmed the standard sudo probe is disabled."
 
-# sudo may strip TMPDIR; restore it after dropping privileges.
-if [ -n "$tmpdir_assignment" ]; then
-  set -- "$tmpdir_assignment" "$@"
-fi
-
-set -- /usr/bin/setpriv \
+echo "Launching Codex with no_new_privs and empty capability sets."
+exec /usr/bin/setpriv \
   --reuid="$uid" \
   --regid="$nobody_gid" \
   --clear-groups \
@@ -73,13 +65,22 @@ set -- /usr/bin/setpriv \
   --bounding-set=-all \
   --inh-caps=-all \
   --ambient-caps=-all \
-  -- /usr/bin/env \
-  -u SUDO_COMMAND -u SUDO_USER -u SUDO_UID -u SUDO_GID -u TMPDIR \
-  "HOME=$home" "USER=$user" "LOGNAME=$user" "PATH=$runner_path" \
-  "NODE_OPTIONS=$node_options" \
-  "$@"
-echo "Launching Codex with no_new_privs and empty capability sets."
-exec "$@"
+  -- "$@"
+`;
+
+// Runs after setpriv. Read exactly the environment prefix so Codex inherits
+// stdin positioned at the first byte of the prompt.
+const EXEC_WITH_STDIN_ENV = `
+  const { readSync } = require("node:fs");
+  const [size, ...argv] = process.argv.slice(1);
+  const env = Buffer.alloc(Number(size));
+  let offset = 0;
+  while (offset < env.length) {
+    const count = readSync(0, env, offset, env.length - offset, null);
+    if (count === 0) throw new Error("Incomplete Codex environment on stdin");
+    offset += count;
+  }
+  process.execve(argv[0], argv, JSON.parse(env.toString("utf8")));
 `;
 
 export type PromptSource =
@@ -185,6 +186,15 @@ export async function runCodexExec({
   });
 
   const command: Array<string> = [];
+  const env = { ...process.env };
+  if (!env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE) {
+    env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE = "codex_github_action";
+  }
+  let extraEnv = "";
+  if (codexHome != null) {
+    env.CODEX_HOME = codexHome;
+    extraEnv = `CODEX_HOME=${codexHome} `;
+  }
 
   const isLinuxDropSudo =
     safetyStrategy === "drop-sudo" && process.platform === "linux";
@@ -210,18 +220,24 @@ export async function runCodexExec({
     }
 
     const user = os.userInfo();
+    env.HOME ??= user.homedir;
+    env.USER = user.username;
+    env.LOGNAME = user.username;
+    for (const name of [
+      "ENV", "BASH_ENV", "SHELLOPTS",
+      "SUDO_COMMAND", "SUDO_USER", "SUDO_UID", "SUDO_GID",
+    ]) {
+      delete env[name];
+    }
+    const encodedEnv = JSON.stringify(env);
+    input = encodedEnv + input;
     command.push(
       "/usr/bin/sudo",
       "-n",
-      "-E",
       "--",
       "/usr/bin/env",
-      "-u",
-      "ENV",
-      "-u",
-      "BASH_ENV",
-      "-u",
-      "SHELLOPTS",
+      "-i",
+      "PATH=/usr/sbin:/usr/bin:/sbin:/bin",
       "/bin/sh",
       "-c",
       LINUX_DROP_SUDO_SCRIPT,
@@ -230,11 +246,13 @@ export async function runCodexExec({
       process.argv[1],
       user.username,
       String(uid),
-      process.env.HOME ?? user.homedir,
-      process.env.PATH ?? "",
-      process.env.NODE_OPTIONS ?? "",
       JSON.stringify(runnerCredentials),
-      process.env.TMPDIR === undefined ? "" : `TMPDIR=${process.env.TMPDIR}`
+      process.execPath,
+      "--disable-sigusr1",
+      "-e",
+      EXEC_WITH_STDIN_ENV,
+      "--",
+      String(Buffer.byteLength(encodedEnv))
     );
   } else if (safetyStrategy === "unprivileged-user") {
     if (codexUser == null) {
@@ -313,16 +331,6 @@ export async function runCodexExec({
       break;
   }
 
-  const env = { ...process.env };
-  if (!env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE) {
-    env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE = "codex_github_action";
-  }
-  let extraEnv = "";
-  if (codexHome != null) {
-    env.CODEX_HOME = codexHome;
-    extraEnv = `CODEX_HOME=${codexHome} `;
-  }
-
   // Split the `program` from the `args` for `spawn()`.
   const program = command.shift()!;
   try {
@@ -346,6 +354,10 @@ export async function runCodexExec({
         });
         child.stdout.pipe(process.stdout, { end: false });
         child.stderr.pipe(process.stdout, { end: false });
+        let stdinError: Error | undefined;
+        child.stdin.on("error", (error) => {
+          stdinError = error;
+        });
 
         let outputDrainTimer: NodeJS.Timeout | undefined;
         const closeOutputStreams = () => {
@@ -379,9 +391,11 @@ export async function runCodexExec({
                 `${program} exited with ${signal ? `signal ${signal}` : `code ${code}`}`
               )
             );
-            return;
+          } else if (stdinError) {
+            reject(stdinError);
+          } else {
+            resolve();
           }
-          resolve();
         });
         child.stdin.end(input);
       });

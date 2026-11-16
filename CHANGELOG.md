@@ -1,5 +1,12 @@
 # codex-action Changelog
 
+## [v1.14](https://github.com/openai/codex-action/tree/v1.14) (2026-11-16)
+
+- [#192](https://github.com/openai/codex-action/pull/192) fix Linux `drop-sudo` socket ACL verification and preserve the runner environment with `sudo-rs` on Ubuntu 26.04.
+- [#187](https://github.com/openai/codex-action/pull/187) prevent Codex output from being interpreted as GitHub Actions workflow commands.
+- [#186](https://github.com/openai/codex-action/pull/186) preserve `TMPDIR` when dropping sudo privileges on Linux.
+- [#184](https://github.com/openai/codex-action/pull/184) preserve UTF-8 characters split across subprocess output chunks, including non-ASCII executable paths.
+
 ## [v1.13](https://github.com/openai/codex-action/tree/v1.13) (2026-10-05)
 
 - [#183](https://github.com/openai/codex-action/pull/183) preserve system service access when restricting runner sockets under Linux `drop-sudo`.
