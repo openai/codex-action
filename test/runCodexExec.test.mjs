@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   chmodSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -25,25 +26,44 @@ function runCodexExecWithFakeCodex({
   permissionProfile = "",
   extraArgs = "",
   safetyStrategy = "unsafe",
+  localInstall = false,
+  exitCode = 0,
 } = {}) {
-  const tempDir = mkdtempSync(path.join(tmpdir(), "codex-action-permissions-"));
+  const tempDir = mkdtempSync(path.join(tmpdir(), "codex action permissions-"));
   const capturePath = path.join(tempDir, "args.json");
+  const promptPath = path.join(tempDir, "prompt.txt");
   const outputPath = path.join(tempDir, "output.txt");
-  const fakeCodexPath = path.join(tempDir, "codex.mjs");
+  const githubOutputPath = path.join(tempDir, "github-output.txt");
+  writeFileSync(githubOutputPath, "");
+  const packageDir = path.join(tempDir, "node_modules", "@openai", "codex");
+  const binDir = localInstall ? path.join(tempDir, "node_modules", ".bin") : tempDir;
+  mkdirSync(binDir, { recursive: true });
+  mkdirSync(path.join(packageDir, "bin"), { recursive: true });
+  writeFileSync(path.join(packageDir, "package.json"), JSON.stringify({
+    name: "@openai/codex",
+    type: "module",
+    bin: { codex: "bin/codex.js" },
+  }));
+  const fakeCodexPath = path.join(packageDir, "bin", "codex.js");
   writeFileSync(
     fakeCodexPath,
     `import { writeFileSync } from "node:fs";
 const args = process.argv.slice(2);
 writeFileSync(process.env.CODEX_CAPTURE_ARGS, JSON.stringify(args));
+let prompt = "";
+process.stdin.setEncoding("utf8");
+for await (const chunk of process.stdin) prompt += chunk;
+writeFileSync(process.env.CODEX_CAPTURE_PROMPT, prompt);
 const outputIndex = args.indexOf("--output-last-message");
 if (outputIndex < 0 || outputIndex + 1 >= args.length) {
   throw new Error("missing --output-last-message");
 }
 writeFileSync(args[outputIndex + 1], "fake final message\\n");
+process.exitCode = ${exitCode};
 `,
     "utf8"
   );
-  const posixLauncher = path.join(tempDir, "codex");
+  const posixLauncher = path.join(binDir, "codex");
   writeFileSync(
     posixLauncher,
     `#!/bin/sh\nexec node "${fakeCodexPath}" "$@"\n`,
@@ -51,7 +71,7 @@ writeFileSync(args[outputIndex + 1], "fake final message\\n");
   );
   chmodSync(posixLauncher, 0o755);
   writeFileSync(
-    path.join(tempDir, "codex.cmd"),
+    path.join(binDir, "codex.cmd"),
     `@node "${fakeCodexPath}" %*\r\n`,
     "utf8"
   );
@@ -95,20 +115,27 @@ writeFileSync(args[outputIndex + 1], "fake final message\\n");
       encoding: "utf8",
       env: {
         ...process.env,
-        PATH: `${tempDir}${path.delimiter}${process.env.PATH ?? ""}`,
+        // Keep installed native Codex binaries from masking a failure to run
+        // the npm-style .cmd launcher on Windows.
+        PATH: `${binDir}${path.delimiter}${path.dirname(process.execPath)}`,
         CODEX_CAPTURE_ARGS: capturePath,
+        CODEX_CAPTURE_PROMPT: promptPath,
+        GITHUB_OUTPUT: githubOutputPath,
       },
     }
   );
 
   let capturedArgs = null;
+  let capturedPrompt = null;
   try {
     capturedArgs = JSON.parse(readFileSync(capturePath, "utf8"));
+    capturedPrompt = readFileSync(promptPath, "utf8");
   } catch {
     // Expected when argument validation rejects the invocation before spawning Codex.
   }
+  const githubOutput = readFileSync(githubOutputPath, "utf8");
   rmSync(tempDir, { recursive: true, force: true });
-  return { result, capturedArgs };
+  return { result, capturedArgs, capturedPrompt, githubOutput };
 }
 
 test("preserves workspace-write as the default legacy sandbox", () => {
@@ -116,6 +143,44 @@ test("preserves workspace-write as the default legacy sandbox", () => {
 
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(capturedArgs.slice(-2), ["--sandbox", "workspace-write"]);
+});
+
+test("preserves quoted arguments and shell metacharacters when launching Codex", () => {
+  const extraArgs = [
+    "--model",
+    "model with spaces & parentheses (test)",
+    "--config",
+    'model_reasoning_summary="a | b & c"',
+  ];
+  const { result, capturedArgs } = runCodexExecWithFakeCodex({
+    extraArgs: JSON.stringify(extraArgs),
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(capturedArgs.slice(-extraArgs.length - 2, -2), extraArgs);
+});
+
+test("launches a local npm installation and forwards the prompt", () => {
+  const { result, capturedArgs, capturedPrompt, githubOutput } = runCodexExecWithFakeCodex({
+    localInstall: true,
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(capturedArgs[0], "exec");
+  assert.equal(capturedPrompt, "test prompt");
+  assert.match(githubOutput, /fake final message/);
+});
+
+test("preserves a failing npm-launched Codex exit after it writes its final message", () => {
+  const { result, capturedArgs, capturedPrompt, githubOutput } = runCodexExecWithFakeCodex({
+    exitCode: 7,
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.equal(capturedArgs[0], "exec");
+  assert.equal(capturedPrompt, "test prompt");
+  assert.match(result.stderr, /exited with code 7/);
+  assert.equal(githubOutput, "");
 });
 
 test("allows permission-profile to be omitted", () => {
