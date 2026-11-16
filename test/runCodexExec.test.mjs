@@ -25,6 +25,7 @@ function runCodexExecWithFakeCodex({
   permissionProfile = "",
   extraArgs = "",
   safetyStrategy = "unsafe",
+  proxyPort = null,
 } = {}) {
   const tempDir = mkdtempSync(path.join(tmpdir(), "codex-action-permissions-"));
   const capturePath = path.join(tempDir, "args.json");
@@ -67,6 +68,9 @@ writeFileSync(args[outputIndex + 1], "fake final message\\n");
       "",
       "--codex-home",
       "",
+      ...(proxyPort == null
+        ? []
+        : ["--proxy-port", String(proxyPort)]),
       "--cd",
       tempDir,
       "--extra-args",
@@ -110,6 +114,36 @@ writeFileSync(args[outputIndex + 1], "fake final message\\n");
   rmSync(tempDir, { recursive: true, force: true });
   return { result, capturedArgs };
 }
+
+test("configures the Responses API proxy through CLI overrides", () => {
+  const { result, capturedArgs } = runCodexExecWithFakeCodex({
+    proxyPort: 12345,
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(
+    capturedArgs.includes(
+      'model_providers.codex-action-responses-proxy={ name = "Codex Action Responses Proxy", base_url = "http://127.0.0.1:12345/v1", wire_api = "responses" }'
+    )
+  );
+  assert.ok(
+    capturedArgs.includes(
+      'model_provider="codex-action-responses-proxy"'
+    )
+  );
+});
+
+test("does not configure the Responses API proxy without a proxy port", () => {
+  const { result, capturedArgs } = runCodexExecWithFakeCodex();
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(
+    capturedArgs.some((arg) =>
+      arg.includes("codex-action-responses-proxy")
+    ),
+    false
+  );
+});
 
 test("preserves workspace-write as the default legacy sandbox", () => {
   const { result, capturedArgs } = runCodexExecWithFakeCodex();

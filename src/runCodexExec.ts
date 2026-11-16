@@ -7,6 +7,8 @@ import { setOutput, warning } from "@actions/core";
 import { checkOutput } from "./checkOutput";
 import { captureLinuxRunnerCredentials } from "./linuxCredentials";
 
+const MODEL_PROVIDER = "codex-action-responses-proxy";
+
 // Bound output draining after process exit: a descendant may retain the write ends.
 const OUTPUT_DRAIN_TIMEOUT_MS = 5_000;
 
@@ -137,6 +139,7 @@ export async function runCodexExec({
   codexUser,
   sandbox,
   permissionProfile,
+  proxyPort,
 }: {
   prompt: PromptSource;
   codexHome: string | null;
@@ -150,6 +153,7 @@ export async function runCodexExec({
   codexUser: string | null;
   sandbox: SandboxMode | null;
   permissionProfile: string | null;
+  proxyPort: number | null;
 }): Promise<void> {
   let input: string;
   switch (prompt.type) {
@@ -280,6 +284,15 @@ export async function runCodexExec({
     // https://github.com/openai/codex/blob/00debb6399eb51c4b9273f0bc012912c42fe6c91/docs/config.md#config
     // https://github.com/openai/codex/blob/00debb6399eb51c4b9273f0bc012912c42fe6c91/docs/config.md#model_reasoning_effort
     command.push("--config", `model_reasoning_effort="${effort}"`);
+  }
+
+  if (proxyPort != null) {
+    command.push(
+      "--config",
+      `model_providers.${MODEL_PROVIDER}={ name = "Codex Action Responses Proxy", base_url = "http://127.0.0.1:${proxyPort}/v1", wire_api = "responses" }`,
+      "--config",
+      `model_provider="${MODEL_PROVIDER}"`
+    );
   }
 
   command.push(...extraArgs);
