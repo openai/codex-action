@@ -186,6 +186,7 @@ test(
           path.join(tmpdir(), "codex-action-drop-sudo-")
         );
         const capturePath = path.join(tempDir, "capture.json");
+        const marker = "workflow value=λ\nsecond line";
         const originalCredentialsPath = path.join(tempDir, "original-credentials.json");
         const outputPath = path.join(tempDir, "output.md");
         const githubOutputPath = path.join(tempDir, "github-output");
@@ -280,7 +281,7 @@ test(
         }
         if (scenario.replacementGroupSudoGrant) {
           sudoRules.push(
-            `%${safeGroupName} ALL=(root) NOPASSWD: /usr/bin/true`
+            `%${safeGroupName} ALL=(root) NOPASSWD: /usr/bin/id -u`
           );
         }
         if (scenario.userAliasSudoGrant) {
@@ -442,6 +443,7 @@ writeFileSync(process.env.CODEX_CAPTURE_PATH, JSON.stringify({
   nodeOptions: process.env.NODE_OPTIONS,
   childNodeOptions: child.stdout.trim(),
   home: process.env.HOME,
+  tmpdir: process.env.TMPDIR,
   marker: process.env.CODEX_TEST_MARKER,
   prompt: readFileSync(0, "utf8"),
 }));
@@ -470,13 +472,23 @@ fs.writeFileSync(${JSON.stringify(originalCredentialsPath)}, JSON.stringify({
         chmodSync(tempDir, 0o711);
         sudo(["chown", "-R", user, tempDir]);
 
+        let runAsUser = ["-u", user];
+        if (scenario.replacementGroupSudoGrant) {
+          // sudo-rs matches %group against the account database. Register the
+          // replacement GID there, but start the launcher with its original GID.
+          sudo(["usermod", "-g", safeGroupName, user]);
+          runAsUser = [
+            "--", "/usr/bin/setpriv", `--reuid=${userId}`,
+            `--regid=${originalDockerSocket.gid}`, "--init-groups",
+          ];
+        }
         const command = [
           "-n",
-          "-u",
-          user,
+          ...runAsUser,
           "--",
           "/usr/bin/env",
           `HOME=${tempDir}`,
+          `TMPDIR=${tempDir}`,
           `PATH=${tempDir}:${process.env.PATH ?? ""}`,
           "NODE_OPTIONS=--disable-sigusr1",
           ...(scenario.retainOutput ? [`GITHUB_OUTPUT=${githubOutputPath}`] : []),
@@ -490,7 +502,7 @@ fs.writeFileSync(${JSON.stringify(originalCredentialsPath)}, JSON.stringify({
                 `CODEX_FALLBACK_ACL_SOCKET=${fallbackAclSocket}`,
               ]
             : []),
-          "CODEX_TEST_MARKER=preserved",
+          `CODEX_TEST_MARKER=${marker}`,
           process.execPath,
           "--require",
           captureCredentialsPath,
@@ -629,7 +641,9 @@ fs.writeFileSync(${JSON.stringify(originalCredentialsPath)}, JSON.stringify({
         assert.equal(capture.nodeOptions, "--disable-sigusr1");
         assert.equal(capture.childNodeOptions, "--disable-sigusr1");
         assert.equal(capture.home, tempDir);
-        assert.equal(capture.marker, "preserved");
+        assert.equal(capture.tmpdir, tempDir);
+        assert.equal(capture.marker, marker);
+        assert.doesNotMatch(result.stdout, /workflow value=λ/);
         assert.equal(capture.prompt, "test prompt\nsecond line");
         if (scenario.verifyForwardedArgs) {
           const forwardedStart = capture.args.indexOf(scenario.extraArgs[0]);
@@ -663,9 +677,6 @@ fs.writeFileSync(${JSON.stringify(originalCredentialsPath)}, JSON.stringify({
           scenario.replacementGroupSudoGrant ||
           scenario.userAliasSudoGrant
         ) {
-          const grantedCommand = scenario.replacementGroupSudoGrant
-            ? ["/usr/bin/true"]
-            : ["/usr/bin/id", "-u"];
           const unprotected = spawnSync(
             "/usr/bin/sudo",
             [
@@ -678,7 +689,7 @@ fs.writeFileSync(${JSON.stringify(originalCredentialsPath)}, JSON.stringify({
               "--",
               "/usr/bin/sudo",
               "-n",
-              ...grantedCommand,
+              "/usr/bin/id", "-u",
             ],
             { encoding: "utf8" }
           );
@@ -687,9 +698,7 @@ fs.writeFileSync(${JSON.stringify(originalCredentialsPath)}, JSON.stringify({
             0,
             `expected the residual sudo rule to remain effective without no_new_privs: ${unprotected.stderr}`
           );
-          if (scenario.userAliasSudoGrant) {
-            assert.equal(unprotected.stdout.trim(), "0");
-          }
+          assert.equal(unprotected.stdout.trim(), "0");
         }
 
         const accountGroups = sudo(["id", "-nG", user]).split(/\s+/);
