@@ -25,7 +25,8 @@ const canTestSocketAcls =
   canTestLinuxIsolation &&
   spawnSync("/usr/bin/setfacl", ["--version"], { stdio: "ignore" }).status === 0;
 
-// Bash's builtin checks effective access, including named-user and group ACLs.
+// Check which sockets each identity can write before and after cleanup.
+// Bash's -w honors POSIX ACLs independently of the action's Node probe.
 const testWritable = ["/bin/bash", "--norc", "-c", '[[ -w "$1" ]]', "bash"];
 
 function sudo(args, options = {}) {

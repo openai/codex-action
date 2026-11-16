@@ -436,6 +436,8 @@ async function isSocketWritable(
     }
   }
 
+  // Check the runner's groups and the fallback group used to launch Codex.
+  // Dropping a group can expose write access through the socket's "other" bits.
   const identityGroups = [
     {
       primaryGroupId: credentials.primaryGroupId,
@@ -444,16 +446,15 @@ async function isSocketWritable(
     ...(credentials.fallbackGroupId === undefined
       ? []
       : [
-        {
-          primaryGroupId: credentials.fallbackGroupId,
-          supplementaryGroupIds: [],
-        },
-      ]),
+          {
+            primaryGroupId: credentials.fallbackGroupId,
+            supplementaryGroupIds: [],
+          },
+        ]),
   ];
 
-  // Previous version of codex-action used `test -w` to check whether a socket was writeable,
-  // but this could vary if the underlying implementation (e.g. Rust coreutils) only tested
-  // the mode bits and not POSIX ACLs. Node's `fs.access` checks both.
+  // Ask the kernel to check the pinned socket's mode and POSIX ACL as the
+  // runner UID. Only a permission denial should exit 1 with empty stderr.
   const check_socket_write_access = `
     const { access, constants } = require("node:fs");
     access(process.argv[1], constants.W_OK, (error) => {

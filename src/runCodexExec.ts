@@ -222,8 +222,13 @@ export async function runCodexExec({
     env.USER = user.username;
     env.LOGNAME = user.username;
     for (const name of [
-      "ENV", "BASH_ENV", "SHELLOPTS",
-      "SUDO_COMMAND", "SUDO_USER", "SUDO_UID", "SUDO_GID",
+      "ENV",
+      "BASH_ENV",
+      "SHELLOPTS",
+      "SUDO_COMMAND",
+      "SUDO_USER",
+      "SUDO_UID",
+      "SUDO_GID",
     ]) {
       delete env[name];
     }
