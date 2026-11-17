@@ -190,13 +190,21 @@ setInterval(() => {}, 1000);
   }
 );
 
-test("Codex action and its descendants replace inherited Node options", () => {
+test("Codex output cannot be interpreted as GitHub workflow commands", () => {
   const step = actionStep("Run codex exec");
 
   assert.match(
     step,
-    /exec env -u NODE_OPTIONS NODE_OPTIONS=--disable-sigusr1 node --disable-sigusr1 "\$ACTION_PATH\/dist\/main\.js" run-codex-exec/
+    /workflow_command_token="codex-action-\$\(uuidgen\)"/
   );
+  assert.match(step, /echo "::stop-commands::\$workflow_command_token"/);
+  assert.match(step, /echo "::\$workflow_command_token::"/);
+  assert.match(
+    step,
+    /env -u NODE_OPTIONS NODE_OPTIONS=--disable-sigusr1 node --disable-sigusr1 "\$ACTION_PATH\/dist\/main\.js" run-codex-exec/
+  );
+  assert.match(step, /run_codex_exit=\$\?/);
+  assert.match(step, /exit "\$run_codex_exit"/);
 });
 
 test(
