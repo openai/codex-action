@@ -17,6 +17,7 @@ import { ensureActorHasWriteAccess } from "./checkActorPermissions";
 import parseArgsStringToArgv from "string-argv";
 import { writeProxyConfig } from "./writeProxyConfig";
 import { checkOutput } from "./checkOutput";
+import { validateRunManifestPath, writeRunManifest } from "./runManifest";
 
 export async function main() {
   const program = new Command();
@@ -145,6 +146,11 @@ export async function main() {
       "--output-file <FILE>",
       "Path where the final message from `codex exec` will be written."
     )
+    .option(
+      "--run-manifest-file <FILE>",
+      "Optional new run manifest filename at the GITHUB_WORKSPACE root.",
+      ""
+    )
     .requiredOption(
       "--output-schema-file <FILE>",
       "Path to a schema file to pass to `codex exec --output-schema`."
@@ -180,6 +186,7 @@ export async function main() {
         cd: string;
         extraArgs: Array<string>;
         outputFile: string;
+        runManifestFile: string;
         outputSchemaFile: string;
         outputSchema: string;
         sandbox: string;
@@ -193,6 +200,7 @@ export async function main() {
           prompt,
           promptFile,
           outputFile,
+          runManifestFile,
           codexHome,
           cd,
           extraArgs,
@@ -252,20 +260,65 @@ export async function main() {
           };
         }
 
-        await runCodexExec({
-          prompt: promptSource,
-          codexHome: emptyAsNull(codexHome),
-          cd,
-          extraArgs,
-          explicitOutputFile: emptyAsNull(outputFile),
-          outputSchema: outputSchemaSource,
-          sandbox: toOptionalSandboxMode(sandbox),
-          permissionProfile: emptyAsNull(permissionProfile),
-          model: emptyAsNull(model),
-          effort: emptyAsNull(effort),
-          safetyStrategy: toSafetyStrategy(safetyStrategy),
-          codexUser: emptyAsNull(codexUser),
-        });
+        const selectedSandbox = toOptionalSandboxMode(sandbox);
+        const selectedSafetyStrategy = toSafetyStrategy(safetyStrategy);
+        if (runManifestFile) {
+          await validateRunManifestPath(
+            process.env.GITHUB_WORKSPACE ?? "",
+            runManifestFile
+          );
+        }
+        const startedAt = Date.now();
+        let runError: unknown;
+        try {
+          await runCodexExec({
+            prompt: promptSource,
+            codexHome: emptyAsNull(codexHome),
+            cd,
+            extraArgs,
+            explicitOutputFile: emptyAsNull(outputFile),
+            outputSchema: outputSchemaSource,
+            sandbox: selectedSandbox,
+            permissionProfile: emptyAsNull(permissionProfile),
+            model: emptyAsNull(model),
+            effort: emptyAsNull(effort),
+            safetyStrategy: selectedSafetyStrategy,
+            codexUser: emptyAsNull(codexUser),
+          });
+        } catch (error) {
+          runError = error;
+        }
+
+        if (runManifestFile) {
+          try {
+            const manifestPath = await writeRunManifest(
+              process.env.GITHUB_WORKSPACE ?? "",
+              runManifestFile,
+              {
+                startedAt,
+                finishedAt: Date.now(),
+                outcome: runError ? "failed" : "succeeded",
+                promptSource: promptSource.type,
+                requestedSafetyStrategy: selectedSafetyStrategy,
+                requestedLegacySandbox: selectedSandbox,
+                githubEventSha: process.env.GITHUB_SHA ?? null,
+              }
+            );
+            const { setOutput } = await import("@actions/core");
+            setOutput("run-manifest-file", manifestPath);
+          } catch (manifestError) {
+            if (!runError) {
+              throw manifestError;
+            }
+            // Keep the Codex failure as the primary error.
+            console.error(
+              "Codex failed and the requested run manifest could not be written."
+            );
+          }
+        }
+        if (runError) {
+          throw runError;
+        }
       }
     );
 
