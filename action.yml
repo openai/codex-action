@@ -14,6 +14,10 @@ inputs:
     description: "File where the final Codex message is written. Leave empty to skip writing a file."
     required: false
     default: ""
+  run-manifest-file:
+    description: "Optional new JSON run manifest filename at the GitHub workspace root."
+    required: false
+    default: ""
   openai-api-key:
     description: "OpenAI API key used by Codex."
     required: false
@@ -124,6 +128,9 @@ outputs:
   final-message:
     description: "Raw output emitted by `codex exec`."
     value: ${{ steps.run_codex.outputs['final-message'] }}
+  run-manifest-file:
+    description: "Workspace-relative path to the run manifest when requested and written."
+    value: ${{ steps.run_codex.outputs['run-manifest-file'] }}
 runs:
   using: "composite"
   steps:
@@ -350,6 +357,7 @@ runs:
         CODEX_PROMPT: ${{ inputs.prompt }}
         CODEX_PROMPT_FILE: ${{ inputs['prompt-file'] }}
         CODEX_OUTPUT_FILE: ${{ inputs['output-file'] }}
+        CODEX_RUN_MANIFEST_FILE: ${{ inputs['run-manifest-file'] }}
         CODEX_HOME: ${{ steps.resolve_home.outputs.codex-home }}
         CODEX_WORKING_DIRECTORY: ${{ inputs['working-directory'] || github.workspace }}
         CODEX_SANDBOX: ${{ inputs.sandbox }}
@@ -369,6 +377,7 @@ runs:
             --prompt "${CODEX_PROMPT}" \
             --prompt-file "${CODEX_PROMPT_FILE}" \
             --output-file "$CODEX_OUTPUT_FILE" \
+            --run-manifest-file "$CODEX_RUN_MANIFEST_FILE" \
             --codex-home "$CODEX_HOME" \
             --cd "$CODEX_WORKING_DIRECTORY" \
             --extra-args "$CODEX_ARGS" \

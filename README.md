@@ -105,6 +105,7 @@ jobs:
 | `prompt`                 | Inline prompt text. Provide this or `prompt-file`.                                                                                             | `""`        |
 | `prompt-file`            | Path (relative to the repository root) of a file that contains the prompt. Provide this or `prompt`.                                           | `""`        |
 | `output-file`            | File where the final Codex message is written. Leave empty to skip writing a file.                                                             | `""`        |
+| `run-manifest-file`      | Optional new JSON manifest filename at the GitHub workspace root, for example `codex-run.json`.                                                | `""`        |
 | `working-directory`      | Directory passed to `codex exec --cd`. Defaults to the repository root.                                                                        | `""`        |
 | `sandbox`                | Legacy sandbox mode. Prefer `permission-profile: ":workspace"` for new workflows. Mutually exclusive with `permission-profile`.               | `""`        |
 | `permission-profile`     | Built-in or configured [Codex permission profile](https://developers.openai.com/codex/permissions) selected through `default_permissions`.      | `""`        |
@@ -182,9 +183,10 @@ See [Protecting your `OPENAI_API_KEY`](./docs/security.md#protecting-your-openai
 
 ## Outputs
 
-| Name            | Description                             |
-| --------------- | --------------------------------------- |
-| `final-message` | Final message returned by `codex exec`. |
+| Name                | Description                                                   |
+| ------------------- | ------------------------------------------------------------- |
+| `final-message`     | Final message returned by `codex exec`.                       |
+| `run-manifest-file` | Workspace-relative manifest filename when one was requested. |
 
 As we saw in the example above, we took the `final-message` output of the `run_codex` step and made it an output of the `codex` job in the workflow:
 
@@ -195,6 +197,23 @@ jobs:
     outputs:
       final_message: ${{ steps.run_codex.outputs.final-message }}
 ```
+
+### Run manifest
+
+Set `run-manifest-file: codex-run.json` to write a versioned JSON document at the
+workspace root. The file must not already exist. On POSIX runners the Action creates it
+with mode `0600`; Windows access follows the workspace ACL. The file is written after
+Codex finishes, including when Codex fails. It records timestamps,
+duration, success or failure, prompt source type, requested safety strategy,
+requested legacy sandbox selection, and a valid GitHub event SHA when available.
+The event SHA is not a verified hash of the checked-out working tree. The manifest
+contains no prompt, child logs,
+final message, environment variables, or credentials. A failed Action step may not expose
+its output to downstream steps, so a workflow that collects failure artifacts should use
+the chosen filename and `if: always()`.
+
+The first schema does not include token usage, diff statistics, or a process exit code.
+`outcome: "failed"` means the Codex invocation failed; it does not classify the cause.
 
 ## Additional tips
 
